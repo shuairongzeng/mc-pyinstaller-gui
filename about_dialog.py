@@ -2,7 +2,7 @@
 关于对话框
 
 @Description: 关于对话框
-@Version: 1.0
+@Version: 1.0.1
 @Author: xuyou & xiaomizha
 """
 from datetime import datetime
@@ -75,7 +75,7 @@ class AboutDialog(QDialog):
                                                      "QLabel { color: initial; text-decoration: initial; }")
         app_name_label.setFont(QFont("Arial", 16, QFont.Bold))
         title_info_layout.addWidget(app_name_label)
-        version_label = QLabel("版本: 1.0")
+        version_label = QLabel("版本: 1.0.1")
         version_label.setFont(QFont("Arial", 10))
         title_info_layout.addWidget(version_label)
         title_layout.addLayout(title_info_layout)

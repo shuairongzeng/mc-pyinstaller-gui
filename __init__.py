@@ -2,13 +2,17 @@
 PyInstaller打包工具
 
 @Description: 基于PyQt5开发的PyInstaller图形化打包工具
-@Version: 1.0
+@Version: 1.0.1
 @Author: xuyou & xiaomizha
 """
 import os
 import sys
 import webbrowser
 from datetime import datetime
+import subprocess
+import importlib.util
+import ast
+import json
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTabWidget, QMenuBar, QAction, QLabel, QLineEdit, QPushButton,
@@ -30,26 +34,40 @@ class PackageThread(QThread):
     def __init__(self, command):
         super().__init__()
         self.command = command
+        self.process = None
 
     def run(self):
         try:
-            import subprocess
-            process = subprocess.Popen(
+            creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            self.process = subprocess.Popen(
                 self.command,
                 shell=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                universal_newlines=True
+                universal_newlines=True,
+                creationflags=creationflags
             )
 
-            for line in iter(process.stdout.readline, ''):
+            for line in iter(self.process.stdout.readline, ''):
                 self.output_signal.emit(line.strip())
 
-            process.wait()
-            self.finished_signal.emit(process.returncode == 0)
+            self.process.wait()
+            self.finished_signal.emit(self.process.returncode == 0)
         except Exception as e:
             self.output_signal.emit(f"错误: {str(e)}")
             self.finished_signal.emit(False)
+
+    def terminate(self):
+        if self.process and self.process.poll() is None:
+            if sys.platform == "win32":
+                subprocess.run(f"taskkill /F /T /PID {self.process.pid}", shell=True, capture_output=True)
+            else:
+                import signal
+                os.kill(self.process.pid, signal.SIGTERM)
+                self.process.wait(timeout=5)
+                if self.process.poll() is None:
+                    os.kill(self.process.pid, signal.SIGKILL)
+        super().terminate()
 
 
 class PyInstallerPacker:
@@ -70,11 +88,11 @@ class PyInstallerPacker:
 
         # 高级选项
         self.name = ""
-        self.contents_dir = ""
-        self.upx_checkbox = ""
+        self.contents_directory = ""
+        self.upx_checkbox = False
         self.upx_dir = ""
-        self.clean_checkbox = False
-        self.log_level_combo = ""
+        self.clean = False
+        self.log_level = ""
 
         # 捆绑选项
         self.add_binary = ""
@@ -126,10 +144,12 @@ class PyInstallerPacker:
 
     def generate_command(self):
         """生成PyInstaller命令"""
+        # import os
         if not self.script_path:
             return ""
 
-        cmd = ["pyinstaller"]
+        # cmd = ["pyinstaller"]
+        cmd = [sys.executable, "-m", "PyInstaller"]
 
         # 基本选项
         if self.is_one_file:
@@ -144,31 +164,37 @@ class PyInstallerPacker:
 
         # 输出目录
         if self.output_dir:
-            cmd.append(f"--distpath={self.output_dir}")
+            cmd.append(f"--distpath={os.path.abspath(self.output_dir)}")
 
         # 图标
         if self.icon_path:
-            cmd.append(f"--icon={self.icon_path}")
+            cmd.append(f"--icon={os.path.abspath(self.icon_path)}")
 
         # 附加文件
         for file_path in self.additional_files:
             if ':' not in file_path and ';' not in file_path:
-                import os
                 filename = os.path.basename(file_path)
                 cmd.append(f"--add-data={file_path}:{filename}")
             else:
                 formatted_path = file_path.replace(';', ':')
                 cmd.append(f"--add-data={formatted_path}")
+            # parts = file_path.split(':', 1)
+            # src = os.path.abspath(parts[0])
+            # dest = parts[1] if len(parts) > 1 else os.path.basename(src)
+            # cmd.append(f"--add-data=\"{src}{os.pathsep}{dest}\"")
 
         # 附加目录
         for dir_path in self.additional_dirs:
             if ':' not in dir_path and ';' not in dir_path:
-                import os
                 dirname = os.path.basename(dir_path.rstrip('/\\'))
                 cmd.append(f"--add-data={dir_path}:{dirname}")
             else:
                 formatted_path = dir_path.replace(';', ':')
                 cmd.append(f"--add-data={formatted_path}")
+                # parts = dir_path.split(':', 1)
+            # src = os.path.abspath(parts[0])
+            # dest = parts[1] if len(parts) > 1 else os.path.basename(src.rstrip('/\\'))
+            # cmd.append(f"--add-data=\"{src}{os.pathsep}{dest}\"")
 
         # # UPX压缩
         # if self.enable_upx:
@@ -184,7 +210,7 @@ class PyInstallerPacker:
         if self.contents_directory:
             cmd.append(f"--contents-directory={self.contents_directory}")
         if self.enable_upx and self.upx_dir:
-            cmd.append(f"--upx-dir={self.upx_dir}")
+            cmd.append(f"--upx-dir={os.path.abspath(self.upx_dir)}")
         if self.clean:
             cmd.append("--clean")
         if self.log_level:
@@ -192,9 +218,21 @@ class PyInstallerPacker:
 
         # 捆绑选项
         if self.add_binary:
-            cmd.append(f"--add-binary={self.add_binary}")
+            # cmd.append(f"--add-binary={self.add_binary}")
+            for entry in self.add_binary.replace(';', ',').split(','):
+                entry = entry.strip()
+                if entry:
+                    src_dest_parts = entry.split(':', 1)
+                    if len(src_dest_parts) == 2:
+                        src_path = os.path.abspath(src_dest_parts[0])
+                        dest_path = src_dest_parts[1]
+                        cmd.append(f"--add-binary=\"{src_path}{os.pathsep}{dest_path}\"")
+                    else:
+                        cmd.append(f"--add-binary=\"{os.path.abspath(entry)}\"")
         if self.paths:
-            cmd.append(f"--paths={self.paths}")
+            # cmd.append(f"--paths={self.paths}")
+            cmd.append(
+                f"--paths={os.pathsep.join([os.path.abspath(p.strip()) for p in self.paths.split(';') if p.strip()])}")
         if self.hidden_import:
             for imp in self.hidden_import.split(','):
                 imp = imp.strip()
@@ -276,16 +314,20 @@ class PyInstallerPacker:
 
         # 其它选项
         if self.module:
-            cmd.append(f"-m {self.module}")
+            # cmd.append(f"-m {self.module}")
+            cmd[1:1] = ["-m", self.module]
 
         # 附加参数
         if self.additional_args.strip():
             cmd.extend(self.additional_args.split())
 
         # 脚本路径
-        cmd.append(self.script_path)
+        # cmd.append(self.script_path)
+        if not self.module:
+            cmd.append(os.path.abspath(self.script_path))
 
-        return " ".join(cmd)
+        # return " ".join(cmd)
+        return " ".join(f'"{arg}"' if ' ' in arg and arg.startswith('--') else arg for arg in cmd)
 
 
 class PyInstallerPackerGUI(QMainWindow):
@@ -293,13 +335,15 @@ class PyInstallerPackerGUI(QMainWindow):
         super().__init__()
         self.packer = PyInstallerPacker()
         self.package_thread = None
+        self.use_ast_detection = True
+        self.use_pyinstaller_detection = False
         self.init_ui()
         self.center_window()
 
     def init_ui(self):
         """初始化用户界面"""
-        self.setWindowTitle("PyInstaller打包工具 v1.0")
-        self.setMinimumSize(800, 600)
+        self.setWindowTitle("PyInstaller打包工具 v1.0.1")
+        self.setMinimumSize(800, 1000)
 
         self.create_menu_bar()
 
@@ -317,6 +361,7 @@ class PyInstallerPackerGUI(QMainWindow):
         layout.addWidget(self.tab_widget)
         self.create_basic_tab()
         self.create_advanced_tab()
+        self.create_module_tab()
         self.create_settings_tab()
         self.create_log_tab()
 
@@ -328,21 +373,16 @@ class PyInstallerPackerGUI(QMainWindow):
 
         # 文件菜单
         file_menu = menubar.addMenu('文件(&F)')
-
         new_action = QAction('新建项目(&N)', self)
         new_action.setShortcut('Ctrl+N')
         file_menu.addAction(new_action)
-
         open_action = QAction('打开项目(&O)', self)
         open_action.setShortcut('Ctrl+O')
         file_menu.addAction(open_action)
-
         save_action = QAction('保存项目(&S)', self)
         save_action.setShortcut('Ctrl+S')
         file_menu.addAction(save_action)
-
         file_menu.addSeparator()
-
         exit_action = QAction('退出(&X)', self)
         exit_action.setShortcut('Ctrl+W')
         exit_action.triggered.connect(self.close)
@@ -350,14 +390,12 @@ class PyInstallerPackerGUI(QMainWindow):
 
         # 编辑菜单
         edit_menu = menubar.addMenu('编辑(&E)')
-
         clear_action = QAction('清空配置(&C)', self)
         clear_action.triggered.connect(self.clear_configuration)
         edit_menu.addAction(clear_action)
 
         # 选项菜单
         options_menu = menubar.addMenu('选项(&O)')
-
         settings_action = QAction('设置(&S)', self)
         settings_action.setShortcut('Ctrl+,')
         settings_action.triggered.connect(self.show_settings)
@@ -365,29 +403,30 @@ class PyInstallerPackerGUI(QMainWindow):
 
         # 工具菜单
         tools_menu = menubar.addMenu('工具(&T)')
-
         check_pyinstaller_action = QAction('检查PyInstaller(&C)', self)
         check_pyinstaller_action.triggered.connect(self.check_pyinstaller)
         tools_menu.addAction(check_pyinstaller_action)
+        install_pyinstaller_action = QAction('安装PyInstaller(&I)', self)
+        install_pyinstaller_action.triggered.connect(self.install_pyinstaller)
+        tools_menu.addAction(install_pyinstaller_action)
+        tools_menu.addSeparator()
+        detect_modules_action = QAction('检测所需模块(&D)', self)
+        detect_modules_action.triggered.connect(self.detect_required_modules)
+        tools_menu.addAction(detect_modules_action)
 
         # 帮助菜单
         help_menu = menubar.addMenu('帮助(&H)')
-
         donate_action = QAction('捐赠(&D)', self)
         donate_action.triggered.connect(self.open_donate_page)
         help_menu.addAction(donate_action)
-
         contact_action = QAction('联系(&C)', self)
         contact_action.triggered.connect(self.open_contact_page)
         help_menu.addAction(contact_action)
-
         homepage_action = QAction('首页(&H)', self)
         homepage_action.setShortcut('Home')
         homepage_action.triggered.connect(self.open_homepage)
         help_menu.addAction(homepage_action)
-
         help_menu.addSeparator()
-
         about_action = QAction('关于(&A)', self)
         about_action.setShortcut('Ctrl+Tab')
         about_action.triggered.connect(self.show_about)
@@ -458,6 +497,11 @@ class PyInstallerPackerGUI(QMainWindow):
         icon_browse_btn.clicked.connect(self.browse_icon)
         options_layout.addWidget(icon_browse_btn, 2, 3)
 
+        detect_modules_basic_btn = QPushButton("检测所需模块")
+        detect_modules_basic_btn.setToolTip("自动检测脚本中的导入模块")
+        detect_modules_basic_btn.clicked.connect(self.detect_required_modules)
+        options_layout.addWidget(detect_modules_basic_btn, 3, 0, 1, 4)
+
         layout.addWidget(options_group)
 
         # 附加文件
@@ -489,7 +533,7 @@ class PyInstallerPackerGUI(QMainWindow):
         cli_layout = QVBoxLayout(cli_group)
 
         self.cli_command_edit = QTextEdit()
-        self.cli_command_edit.setMaximumHeight(100)
+        # self.cli_command_edit.setMaximumHeight(150)
         self.cli_command_edit.setReadOnly(True)
         cli_layout.addWidget(self.cli_command_edit)
 
@@ -893,10 +937,69 @@ class PyInstallerPackerGUI(QMainWindow):
 
         self.module_edit.textChanged.connect(self.update_command)
 
+    def create_module_tab(self):
+        """模块设置选项卡"""
+        module_widget = QWidget()
+        layout = QVBoxLayout(module_widget)
+
+        # 常规
+        general_settings_group = QGroupBox("常规设置")
+        general_settings_layout = QVBoxLayout(general_settings_group)
+        self.use_ast_checkbox = QCheckBox("使用AST检测依赖")
+        self.use_ast_checkbox.setChecked(self.use_ast_detection)
+        self.use_ast_checkbox.toggled.connect(lambda state: setattr(self, 'use_ast_detection', state))
+        general_settings_layout.addWidget(self.use_ast_checkbox)
+        self.use_pyinstaller_detection_checkbox = QCheckBox("使用PyInstaller分析检测依赖")
+        self.use_pyinstaller_detection_checkbox.setChecked(self.use_pyinstaller_detection)
+        self.use_pyinstaller_detection_checkbox.toggled.connect(
+            lambda state: setattr(self, 'use_pyinstaller_detection', state))
+        general_settings_layout.addWidget(self.use_pyinstaller_detection_checkbox)
+
+        layout.addWidget(general_settings_group)
+
+        # 模块检测与配置
+        module_detection_group = QGroupBox("模块检测与配置")
+        module_detection_layout = QVBoxLayout(module_detection_group)
+
+        self.detected_modules_list = QListWidget()
+        self.detected_modules_list.setToolTip("显示检测到的模块及其路径, 双击可添加到隐藏导入")
+        self.detected_modules_list.itemDoubleClicked.connect(self.add_selected_as_hidden_import)
+        module_detection_layout.addWidget(self.detected_modules_list)
+        module_buttons_layout = QHBoxLayout()
+        detect_modules_btn = QPushButton("检测所需模块")
+        detect_modules_btn.clicked.connect(self.detect_required_modules)
+        module_buttons_layout.addWidget(detect_modules_btn)
+        add_hidden_import_btn = QPushButton("添加为隐藏导入")
+        add_hidden_import_btn.clicked.connect(self.add_selected_as_hidden_import)
+        module_buttons_layout.addWidget(add_hidden_import_btn)
+        module_buttons_layout.addStretch()
+        module_detection_layout.addLayout(module_buttons_layout)
+
+        layout.addWidget(module_detection_group)
+
+        # layout.addStretch()
+        self.tab_widget.addTab(module_widget, "模块设置")
+
     def create_settings_tab(self):
         """打包设置选项卡"""
         settings_widget = QWidget()
         layout = QVBoxLayout(settings_widget)
+
+        # PyInstaller设置
+        pyinstaller_settings_group = QGroupBox("PyInstaller设置")
+        pyinstaller_settings_layout = QHBoxLayout(pyinstaller_settings_group)
+
+        check_pyinstaller_btn = QPushButton("检查PyInstaller")
+        check_pyinstaller_btn.clicked.connect(self.check_pyinstaller)
+        pyinstaller_settings_layout.addWidget(check_pyinstaller_btn)
+        install_pyinstaller_btn = QPushButton("安装PyInstaller")
+        install_pyinstaller_btn.clicked.connect(self.install_pyinstaller)
+        pyinstaller_settings_layout.addWidget(install_pyinstaller_btn)
+        uninstall_pyinstaller_btn = QPushButton("卸载PyInstaller")
+        uninstall_pyinstaller_btn.clicked.connect(self.uninstall_pyinstaller)
+        pyinstaller_settings_layout.addWidget(uninstall_pyinstaller_btn)
+        pyinstaller_settings_layout.addStretch()
+        layout.addWidget(pyinstaller_settings_group)
 
         # 输出设置
         output_group = QGroupBox("输出设置")
@@ -1129,7 +1232,7 @@ class PyInstallerPackerGUI(QMainWindow):
         self.packer.optimize = self.optimize_combo.currentText()
         self.packer.python_option = self.python_option_edit.text()
         self.packer.strip = self.strip_checkbox.isChecked()
-        self.packer.noupx = not self.upx_checkbox.isChecked()
+        self.packer.noupx = not self.noupx_checkbox.isChecked()
         self.packer.upx_exclude = self.upx_exclude_edit.text()
 
         self.packer.hide_console = self.hide_console_combo.currentText()
@@ -1162,6 +1265,11 @@ class PyInstallerPackerGUI(QMainWindow):
             QMessageBox.warning(self, "警告", "请先选择Python脚本文件")
             return
 
+        if not self.check_and_install_pyinstaller():
+            self.log_text.append("\nPyInstaller未安装或安装失败, 打包中止")
+            QMessageBox.critical(self, "错误", "PyInstaller未安装或安装失败, 无法继续打包")
+            return
+
         command = self.packer.generate_command()
         if not command:
             QMessageBox.warning(self, "警告", "无法生成打包命令")
@@ -1178,7 +1286,7 @@ class PyInstallerPackerGUI(QMainWindow):
         self.progress_bar.setRange(0, 0)
 
         # 切换到日志选项卡
-        self.tab_widget.setCurrentIndex(3)
+        self.tab_widget.setCurrentIndex(4)
 
         # 启动打包线程
         self.package_thread = PackageThread(command)
@@ -1189,14 +1297,19 @@ class PyInstallerPackerGUI(QMainWindow):
     def stop_package(self):
         """停止打包"""
         if self.package_thread and self.package_thread.isRunning():
-            self.package_thread.terminate()
-            self.package_thread.wait()
-
-        self.package_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
-        self.progress_bar.setVisible(False)
-
-        self.log_text.append("\n打包已停止")
+            reply = QMessageBox.question(self, '确认停止', '打包正在进行中, 确定要停止吗？',
+                                         QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                self.package_thread.terminate()
+                self.package_thread.wait()
+                self.package_btn.setEnabled(True)
+                self.stop_btn.setEnabled(False)
+                self.progress_bar.setVisible(False)
+                self.log_text.append("\n打包已停止")
+            else:
+                return
+        else:
+            self.log_text.append("\n没有正在进行的打包任务")
 
     def update_log(self, text):
         """更新日志显示"""
@@ -1243,73 +1356,165 @@ class PyInstallerPackerGUI(QMainWindow):
             QMessageBox.Yes | QMessageBox.No
         )
         if reply == QMessageBox.Yes:
-            self.script_path_edit.clear()
-            self.icon_path_edit.clear()
-            self.output_dir_edit.setText("./dist")
-            self.additional_args_edit.clear()
-            self.files_list.clear()
-            self.onefile_radio.setChecked(True)
-            self.console_radio.setChecked(True)
-            self.upx_checkbox.setChecked(False)
-            self.name_edit.clear()
-            self.contents_dir_edit.clear()
-            self.upx_checkbox.setChecked(False)
-            self.upx_dir_edit.clear()
-            self.clean_checkbox.setChecked(False)
-            self.log_level_combo.setCurrentText("")
-
-            self.add_binary_edit.clear()
-            self.paths_edit.clear()
-            self.hidden_import_edit.clear()
-            self.collect_submodules_edit.clear()
-            self.collect_data_edit.clear()
-            self.collect_binaries_edit.clear()
-            self.collect_all_edit.clear()
-            self.copy_metadata_edit.clear()
-            self.recursive_copy_metadata_edit.clear()
-            self.hooks_dir_edit.clear()
-            self.runtime_hook_edit.clear()
-            self.exclude_module_edit.clear()
-            self.splash_edit.clear()
-
-            self.debug_combo.setCurrentText("")
-            self.optimize_combo.setCurrentText("")
-            self.python_option_edit.clear()
-            self.strip_checkbox.setChecked(False)
-            self.noupx_checkbox.setChecked(False)
-            self.upx_exclude_edit.clear()
-
-            self.hide_console_combo.setCurrentText("")
-            self.disable_windowed_traceback_checkbox.setChecked(False)
-
-            self.version_file_edit.clear()
-            self.manifest_edit.clear()
-            self.resource_edit.clear()
-            self.uac_admin_checkbox.setChecked(False)
-            self.uac_uiaccess_checkbox.setChecked(False)
-
-            self.argv_emulation_checkbox.setChecked(False)
-            self.bundle_id_edit.clear()
-            self.target_arch_combo.setCurrentText("")
-            self.codesign_edit.clear()
-            self.entitlements_edit.clear()
-
-            self.runtime_tmpdir_edit.clear()
-            self.bootloader_ignore_signals_checkbox.setChecked(False)
-
-            self.module_edit.clear()
-
-            self.update_command()
+            self.clear_all_fields()
+            self.set_default_values()
+            QMessageBox.information(self, "成功", "所有配置已清空并恢复默认设置")
 
     def import_config(self):
         """导入配置"""
-        # 这里可以实现配置文件的导入功能
-        QMessageBox.information(self, "提示", "配置导入功能待实现")
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "导入配置", "", "JSON文件 (*.json);;所有文件 (*.*)"
+        )
+        if file_path:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                self.load_config(config)
+                QMessageBox.information(self, "成功", "配置已成功导入")
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"导入配置失败: {str(e)}")
 
     def export_config(self):
         """导出配置"""
-        # 这里可以实现配置文件的导出功能
-        QMessageBox.information(self, "提示", "配置导出功能待实现")
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "导出配置", f"config_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json", "JSON文件 (*.json);;所有文件 (*.*)"
+        )
+        if file_path:
+            try:
+                config = self.get_config()
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(config, f, indent=4, ensure_ascii=False)
+                QMessageBox.information(self, "成功", "配置已成功导出")
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"导出配置失败: {str(e)}")
+
+    def get_config(self):
+        """获取当前UI配置为字典"""
+        config = {
+            "script_path": self.script_path_edit.text(),
+            "output_dir": self.output_dir_edit.text(),
+            "icon_path": self.icon_path_edit.text(),
+            "additional_files": [self.files_list.item(i).text() for i in range(self.files_list.count())],
+            "is_one_file": self.onefile_radio.isChecked(),
+            "is_windowed": self.windowed_radio.isChecked(),
+            "name": self.name_edit.text(),
+            "contents_directory": self.contents_dir_edit.text(),
+            "enable_upx": self.upx_checkbox.isChecked(),
+            "upx_dir": self.upx_dir_edit.text(),
+            "clean": self.clean_checkbox.isChecked(),
+            "log_level": self.log_level_combo.currentText(),
+            "add_binary": self.add_binary_edit.text(),
+            "paths": self.paths_edit.text(),
+            "hidden_import": self.hidden_import_edit.text(),
+            "collect_submodules": self.collect_submodules_edit.text(),
+            "collect_data": self.collect_data_edit.text(),
+            "collect_binaries": self.collect_binaries_edit.text(),
+            "collect_all": self.collect_all_edit.text(),
+            "copy_metadata": self.copy_metadata_edit.text(),
+            "recursive_copy_metadata": self.recursive_copy_metadata_edit.text(),
+            "hooks_dir": self.hooks_dir_edit.text(),
+            "runtime_hook": self.runtime_hook_edit.text(),
+            "exclude_module": self.exclude_module_edit.text(),
+            "splash": self.splash_edit.text(),
+            "debug": self.debug_combo.currentText(),
+            "optimize": self.optimize_combo.currentText(),
+            "python_option": self.python_option_edit.text(),
+            "strip": self.strip_checkbox.isChecked(),
+            "noupx": self.noupx_checkbox.isChecked(),
+            "upx_exclude": self.upx_exclude_edit.text(),
+            "hide_console": self.hide_console_combo.currentText(),
+            "disable_windowed_traceback": self.disable_windowed_traceback_checkbox.isChecked(),
+            "version_file": self.version_file_edit.text(),
+            "manifest": self.manifest_edit.text(),
+            "resource": self.resource_edit.text(),
+            "uac_admin": self.uac_admin_checkbox.isChecked(),
+            "uac_uiaccess": self.uac_uiaccess_checkbox.isChecked(),
+            "argv_emulation": self.argv_emulation_checkbox.isChecked(),
+            "osx_bundle_identifier": self.bundle_id_edit.text(),
+            "target_architecture": self.target_arch_combo.currentText(),
+            "codesign_identity": self.codesign_edit.text(),
+            "osx_entitlements_file": self.entitlements_edit.text(),
+            "runtime_tmpdir": self.runtime_tmpdir_edit.text(),
+            "bootloader_ignore_signals": self.bootloader_ignore_signals_checkbox.isChecked(),
+            "module": self.module_edit.text(),
+            "additional_args": self.additional_args_edit.text(),
+            "open_output_folder": self.open_output_folder_checkbox.isChecked(),
+            "use_ast_detection": self.use_ast_checkbox.isChecked(),
+            "use_pyinstaller_detection": self.use_pyinstaller_detection_checkbox.isChecked(),
+        }
+        return config
+
+    def load_config(self, config):
+        """从字典加载配置到UI"""
+        self.clear_all_fields()
+
+        self.script_path_edit.setText(config.get("script_path", ""))
+        self.output_dir_edit.setText(config.get("output_dir", "./dist"))
+        self.icon_path_edit.setText(config.get("icon_path", ""))
+
+        self.files_list.clear()
+        for item_text in config.get("additional_files", []):
+            self.files_list.addItem(item_text)
+
+        self.onefile_radio.setChecked(config.get("is_one_file", True))
+        self.onedir_radio.setChecked(not config.get("is_one_file", True))
+        self.console_radio.setChecked(not config.get("is_windowed", False))
+        self.windowed_radio.setChecked(config.get("is_windowed", False))
+
+        self.name_edit.setText(config.get("name", ""))
+        self.contents_dir_edit.setText(config.get("contents_directory", ""))
+        self.upx_checkbox.setChecked(config.get("enable_upx", False))
+        self.upx_dir_edit.setText(config.get("upx_dir", ""))
+        self.clean_checkbox.setChecked(config.get("clean", False))
+        self.log_level_combo.setCurrentText(config.get("log_level", ""))
+
+        self.add_binary_edit.setText(config.get("add_binary", ""))
+        self.paths_edit.setText(config.get("paths", ""))
+        self.hidden_import_edit.setText(config.get("hidden_import", ""))
+        self.collect_submodules_edit.setText(config.get("collect_submodules", ""))
+        self.collect_data_edit.setText(config.get("collect_data", ""))
+        self.collect_binaries_edit.setText(config.get("collect_binaries", ""))
+        self.collect_all_edit.setText(config.get("collect_all", ""))
+        self.copy_metadata_edit.setText(config.get("copy_metadata", ""))
+        self.recursive_copy_metadata_edit.setText(config.get("recursive_copy_metadata", ""))
+        self.hooks_dir_edit.setText(config.get("hooks_dir", ""))
+        self.runtime_hook_edit.setText(config.get("runtime_hook", ""))
+        self.exclude_module_edit.setText(config.get("exclude_module", ""))
+        self.splash_edit.setText(config.get("splash", ""))
+
+        self.debug_combo.setCurrentText(config.get("debug", ""))
+        self.optimize_combo.setCurrentText(config.get("optimize", ""))
+        self.python_option_edit.setText(config.get("python_option", ""))
+        self.strip_checkbox.setChecked(config.get("strip", False))
+        self.noupx_checkbox.setChecked(config.get("noupx", False))
+        self.upx_exclude_edit.setText(config.get("upx_exclude", ""))
+
+        self.hide_console_combo.setCurrentText(config.get("hide_console", ""))
+        self.disable_windowed_traceback_checkbox.setChecked(config.get("disable_windowed_traceback", False))
+
+        self.version_file_edit.setText(config.get("version_file", ""))
+        self.manifest_edit.setText(config.get("manifest", ""))
+        self.resource_edit.setText(config.get("resource", ""))
+        self.uac_admin_checkbox.setChecked(config.get("uac_admin", False))
+        self.uac_uiaccess_checkbox.setChecked(config.get("uac_uiaccess", False))
+
+        self.argv_emulation_checkbox.setChecked(config.get("argv_emulation", False))
+        self.bundle_id_edit.setText(config.get("osx_bundle_identifier", ""))
+        self.target_arch_combo.setCurrentText(config.get("target_architecture", ""))
+        self.codesign_edit.setText(config.get("codesign_identity", ""))
+        self.entitlements_edit.setText(config.get("osx_entitlements_file", ""))
+
+        self.runtime_tmpdir_edit.setText(config.get("runtime_tmpdir", ""))
+        self.bootloader_ignore_signals_checkbox.setChecked(config.get("bootloader_ignore_signals", False))
+
+        self.module_edit.setText(config.get("module", ""))
+        self.additional_args_edit.setText(config.get("additional_args", ""))
+        self.open_output_folder_checkbox.setChecked(config.get("open_output_folder", True))
+
+        self.use_ast_checkbox.setChecked(config.get("use_ast_detection", True))
+        self.use_pyinstaller_detection_checkbox.setChecked(config.get("use_pyinstaller_detection", False))
+
+        self.update_command()
 
     def restore_default_config(self):
         """恢复默认配置"""
@@ -1322,8 +1527,69 @@ class PyInstallerPackerGUI(QMainWindow):
 
     def set_default_values(self):
         """设置默认值"""
-        self.output_dir_edit.setText("./dist")
         self.open_output_folder_checkbox.setChecked(True)
+        self.additional_args_edit.clear()
+        self.detected_modules_list.clear()
+
+        self.script_path_edit.clear()
+        self.icon_path_edit.clear()
+        self.output_dir_edit.setText("./dist")
+        self.files_list.clear()
+        self.onefile_radio.setChecked(True)
+        self.console_radio.setChecked(True)
+        self.upx_checkbox.setChecked(False)
+        self.name_edit.clear()
+        self.contents_dir_edit.clear()
+        self.upx_checkbox.setChecked(False)
+        self.upx_dir_edit.clear()
+        self.clean_checkbox.setChecked(False)
+        self.log_level_combo.setCurrentText("")
+
+        self.add_binary_edit.clear()
+        self.paths_edit.clear()
+        self.hidden_import_edit.clear()
+        self.collect_submodules_edit.clear()
+        self.collect_data_edit.clear()
+        self.collect_binaries_edit.clear()
+        self.collect_all_edit.clear()
+        self.copy_metadata_edit.clear()
+        self.recursive_copy_metadata_edit.clear()
+        self.hooks_dir_edit.clear()
+        self.runtime_hook_edit.clear()
+        self.exclude_module_edit.clear()
+        self.splash_edit.clear()
+
+        self.debug_combo.setCurrentText("")
+        self.optimize_combo.setCurrentText("")
+        self.python_option_edit.clear()
+        self.strip_checkbox.setChecked(False)
+        self.noupx_checkbox.setChecked(False)
+        self.upx_exclude_edit.clear()
+
+        self.hide_console_combo.setCurrentText("")
+        self.disable_windowed_traceback_checkbox.setChecked(False)
+
+        self.version_file_edit.clear()
+        self.manifest_edit.clear()
+        self.resource_edit.clear()
+        self.uac_admin_checkbox.setChecked(False)
+        self.uac_uiaccess_checkbox.setChecked(False)
+
+        self.argv_emulation_checkbox.setChecked(False)
+        self.bundle_id_edit.clear()
+        self.target_arch_combo.setCurrentText("")
+        self.codesign_edit.clear()
+        self.entitlements_edit.clear()
+
+        self.runtime_tmpdir_edit.clear()
+        self.bootloader_ignore_signals_checkbox.setChecked(False)
+
+        self.module_edit.clear()
+
+        self.use_ast_checkbox.setChecked(True)
+        self.use_pyinstaller_detection_checkbox.setChecked(False)
+
+        self.update_command()
 
     def clear_all_fields(self):
         """清空所有字段"""
@@ -1395,6 +1661,13 @@ class PyInstallerPackerGUI(QMainWindow):
         # 设置选项
         self.additional_args_edit.clear()
 
+        # 模块检测
+        self.detected_modules_list.clear()
+        self.use_ast_checkbox.setChecked(True)
+        self.use_pyinstaller_detection_checkbox.setChecked(False)
+
+        self.update_command()
+
     def open_output_folder(self):
         """打开输出文件夹"""
         import os
@@ -1404,8 +1677,10 @@ class PyInstallerPackerGUI(QMainWindow):
         output_dir = self.output_dir_edit.text() or "./dist"
         if os.path.exists(output_dir):
             try:
+                # if sys.platform == "win32":
                 if platform.system() == "Windows":
                     os.startfile(output_dir)
+                # elif sys.platform == "darwin":
                 elif platform.system() == "Darwin":
                     subprocess.Popen(["open", output_dir])
                 else:
@@ -1415,30 +1690,274 @@ class PyInstallerPackerGUI(QMainWindow):
         else:
             QMessageBox.warning(self, "警告", f"输出文件夹不存在: {output_dir}")
 
+    def check_pyinstaller_installed(self):
+        """检查PyInstaller是否已安装"""
+        try:
+            creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            result = subprocess.run(
+                [sys.executable, "-m", "PyInstaller", "--version"],
+                capture_output=True, text=True, check=True, creationflags=creationflags
+            )
+            return True
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return False
+        except Exception as e:
+            self.log_text.append(f"检查PyInstaller时发生错误: {e}")
+            return False
+
     def check_pyinstaller(self):
         """检查PyInstaller"""
-        try:
-            import subprocess
-            result = subprocess.run(
-                ["pyinstaller", "--version"],
-                capture_output=True,
-                text=True
-            )
-            if result.returncode == 0:
+        self.log_text.append(f"正在检查PyInstaller: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        if self.check_pyinstaller_installed():
+            try:
+                creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+                result = subprocess.run(
+                    [sys.executable, "-m", "PyInstaller", "--version"],
+                    capture_output=True, text=True, check=True, creationflags=creationflags
+                )
                 QMessageBox.information(
                     self, "PyInstaller检查",
                     f"PyInstaller已安装\n版本: {result.stdout.strip()}"
                 )
-            else:
+                self.log_text.append(f"PyInstaller已安装, 版本: {result.stdout.strip()}")
+            except Exception as e:
                 QMessageBox.warning(
                     self, "PyInstaller检查",
-                    "PyInstaller未正确安装或不在PATH中"
+                    f"PyInstaller已安装, 但获取版本信息失败: {str(e)}"
                 )
-        except Exception as e:
+                self.log_text.append(f"PyInstaller已安装, 但获取版本信息失败: {str(e)}")
+        else:
             QMessageBox.warning(
                 self, "PyInstaller检查",
-                f"检查失败: {str(e)}"
+                "PyInstaller未正确安装或不在当前Python环境中"
             )
+            self.log_text.append("PyInstaller未正确安装或不在当前Python环境中")
+
+    def install_pyinstaller(self):
+        """安装PyInstaller"""
+        if self.check_pyinstaller_installed():
+            QMessageBox.information(self, "安装PyInstaller", "PyInstaller已安装")
+            self.log_text.append("PyInstaller已安装, 无需再次安装")
+            return
+
+        reply = QMessageBox.question(
+            self, "安装PyInstaller",
+            "PyInstaller未安装, 确定要安装PyInstaller吗？这可能需要一些时间",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            try:
+                self.log_text.append(f"尝试安装PyInstaller: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+                process = subprocess.Popen(
+                    [sys.executable, "-m", "pip", "install", "PyInstaller"],
+                    shell=False,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    universal_newlines=True,
+                    creationflags=creationflags
+                )
+                for line in iter(process.stdout.readline, ''):
+                    self.update_log(line.strip())
+                process.wait()
+
+                if process.returncode == 0:
+                    QMessageBox.information(self, "安装成功", "PyInstaller已成功安装")
+                    self.log_text.append("PyInstaller安装成功")
+                else:
+                    QMessageBox.warning(self, "安装失败", "PyInstaller安装失败, 请查看日志")
+                    self.log_text.append("PyInstaller安装失败")
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"安装过程中发生错误: {str(e)}")
+                self.log_text.append(f"安装过程中发生错误: {str(e)}")
+
+    def uninstall_pyinstaller(self):
+        """卸载PyInstaller"""
+        if not self.check_pyinstaller_installed():
+            QMessageBox.information(self, "卸载PyInstaller", "PyInstaller未安装")
+            self.log_text.append("PyInstaller未安装, 无需卸载")
+            return
+
+        reply = QMessageBox.question(
+            self, "卸载PyInstaller",
+            "PyInstaller已安装, 确定要卸载PyInstaller吗？",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            try:
+                self.log_text.append(f"尝试卸载PyInstaller: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+                process = subprocess.Popen(
+                    [sys.executable, "-m", "pip", "uninstall", "-y", "PyInstaller"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    universal_newlines=True,
+                    creationflags=creationflags
+                )
+                for line in iter(process.stdout.readline, ''):
+                    self.update_log(line.strip())
+                process.wait()
+
+                if process.returncode == 0:
+                    QMessageBox.information(self, "卸载成功", "PyInstaller已成功卸载")
+                    self.log_text.append("PyInstaller卸载成功")
+                else:
+                    QMessageBox.warning(self, "卸载失败", "PyInstaller卸载失败, 请查看日志")
+                    self.log_text.append("PyInstaller卸载失败")
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"卸载过程中发生错误: {str(e)}")
+                self.log_text.append(f"卸载过程中发生错误: {str(e)}")
+
+    def check_and_install_pyinstaller(self):
+        """在打包前检查并安装PyInstaller"""
+        if self.check_pyinstaller_installed():
+            self.log_text.append("PyInstaller已安装, 继续打包")
+            return True
+        else:
+            self.log_text.append("PyInstaller未安装, 尝试安装...")
+            self.install_pyinstaller()
+            if self.check_pyinstaller_installed():
+                self.log_text.append("PyInstaller安装成功")
+                return True
+            else:
+                self.log_text.append("PyInstaller无法安装")
+                return False
+
+    def detect_required_modules(self):
+        """
+        尝试检测Python脚本所需的模块
+        """
+        script_path = self.script_path_edit.text()
+        if not script_path or not os.path.exists(script_path):
+            QMessageBox.warning(self, "警告", "请先选择一个有效的Python脚本文件")
+            return
+
+        if not self.use_ast_detection and not self.use_pyinstaller_detection:
+            QMessageBox.warning(self, "警告", "请至少选择一种模块检测方法(AST或PyInstaller)")
+            return
+
+        self.detected_modules_list.clear()
+        self.log_text.append(f"正在检测 '{os.path.basename(script_path)}' 的所需模块...")
+
+        all_detected_modules = set()
+
+        # AST
+        if self.use_ast_detection:
+            try:
+                self.log_text.append("正在使用AST解析检测模块...")
+                with open(script_path, 'r', encoding='utf-8') as f:
+                    tree = ast.parse(f.read(), filename=script_path)
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Import):
+                        for alias in node.names:
+                            all_detected_modules.add(alias.name.split('.')[0])
+                    elif isinstance(node, ast.ImportFrom):
+                        if node.module:
+                            all_detected_modules.add(node.module.split('.')[0])
+                self.log_text.append(f"AST解析检测到 {len(all_detected_modules)} 个模块")
+            except Exception as e:
+                self.log_text.append(f"AST解析模块时发生错误: {e}")
+
+        # PyInstaller
+        if self.use_pyinstaller_detection:
+            try:
+                self.log_text.append("正在尝试运行 PyInstaller --debug imports 获取更多依赖信息...")
+                temp_spec_dir = os.path.join(os.path.dirname(script_path), "__pyinstaller_tmp__")
+                os.makedirs(temp_spec_dir, exist_ok=True)
+                # temp_spec_file = os.path.join(temp_spec_dir, "temp_spec.spec")
+
+                pyinstaller_cmd = [
+                    sys.executable, "-m", "PyInstaller",
+                    "--noconfirm",
+                    "--debug", "imports",
+                    "--specpath", temp_spec_dir,
+                    "--workpath", os.path.join(temp_spec_dir, "build"),
+                    "--distpath", os.path.join(temp_spec_dir, "dist"),
+                    "--clean",
+                    script_path
+                ]
+                creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+                process = subprocess.Popen(
+                    pyinstaller_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    universal_newlines=True,
+                    creationflags=creationflags
+                )
+                pyinstaller_output = []
+                for line in iter(process.stdout.readline, ''):
+                    pyinstaller_output.append(line.strip())
+                    self.update_log(f"[PyInstaller Debug]: {line.strip()}")
+                process.wait()
+
+                for line in pyinstaller_output:
+                    if "Imported module:" in line:
+                        try:
+                            parts = line.split("Imported module:", 1)
+                            if len(parts) > 1:
+                                module_info = parts[1].strip().split(' ')[0]
+                                module_name = module_info.split('(')[0].strip()
+                                if module_name and not module_name.startswith('_pyi_'):
+                                    all_detected_modules.add(module_name.split('.')[0])
+                        except Exception as e:
+                            self.log_text.append(f"解析PyInstaller调试输出时错误: {e}, Line: {line}")
+
+                import shutil
+                if os.path.exists(temp_spec_dir):
+                    shutil.rmtree(temp_spec_dir)
+                    self.log_text.append(f"已清理临时目录: {temp_spec_dir}")
+            except Exception as e:
+                self.log_text.append(f"运行 PyInstaller --debug imports 时发生错误: {str(e)}")
+                if "No module named PyInstaller" in str(e):
+                    self.log_text.append("PyInstaller可能未安装, 请尝试安装")
+                QMessageBox.warning(self, "错误", f"检测模块时发生错误: {str(e)}\n请检查PyInstaller是否安装")
+                return
+
+        if not all_detected_modules:
+            self.log_text.append("未检测到明显的导入模块")
+            QMessageBox.information(self, "模块检测", "未检测到明显的导入模块")
+            return
+        self.log_text.append("检测到以下模块: ")
+        self.detected_modules_list.clear()
+        for module_name in sorted(list(all_detected_modules)):
+            try:
+                spec = importlib.util.find_spec(module_name)
+                if spec and spec.origin:
+                    self.detected_modules_list.addItem(f"{module_name} (路径: {os.path.dirname(spec.origin)})")
+                    self.log_text.append(f"  - {module_name} (路径: {os.path.dirname(spec.origin)})")
+                else:
+                    self.detected_modules_list.addItem(f"{module_name} (未找到安装路径或内置模块)")
+                    self.log_text.append(f"  - {module_name} (未找到安装路径或内置模块)")
+            except Exception as e:
+                self.detected_modules_list.addItem(f"{module_name} (加载失败: {e})")
+                self.log_text.append(f"  - {module_name} (加载失败: {e})")
+
+        QMessageBox.information(self, "模块检测", "模块检测完成, 请查看\"模块检测与配置\"列表和日志")
+        self.tab_widget.setCurrentIndex(2)
+
+    def add_selected_as_hidden_import(self):
+        """将选中的模块添加到隐藏导入列表"""
+        selected_items = self.detected_modules_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "警告", "请先在列表中选择要添加的模块")
+            return
+
+        current_hidden_imports = self.hidden_import_edit.text().split(',')
+        if current_hidden_imports == ['']:
+            current_hidden_imports = []
+
+        new_hidden_imports = []
+        for item in selected_items:
+            module_name = item.text().split(' ')[0]
+            if module_name not in current_hidden_imports:
+                new_hidden_imports.append(module_name)
+
+        if new_hidden_imports:
+            updated_hidden_imports = current_hidden_imports + new_hidden_imports
+            self.hidden_import_edit.setText(",".join(filter(None, updated_hidden_imports)))
+            QMessageBox.information(self, "成功", "选中的模块已添加到隐藏导入")
+        else:
+            QMessageBox.information(self, "提示", "所有选中的模块都已在隐藏导入列表中")
 
     def show_settings(self):
         """显示设置对话框"""
@@ -1452,7 +1971,7 @@ class PyInstallerPackerGUI(QMainWindow):
         except ImportError:
             QMessageBox.information(
                 self, "关于",
-                "PyInstaller打包工具 v1.0\n\n"
+                "PyInstaller打包工具 v1.0.1\n\n"
                 "作者: xuyou & xiaomizha\n"
                 "基于PyQt5开发"
             )
@@ -1471,7 +1990,7 @@ def main():
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
     app.setApplicationName("PyInstaller打包工具")
-    app.setApplicationVersion("1.0")
+    app.setApplicationVersion("1.0.1")
     app.setOrganizationName("xuyou & xiaomizha")
 
     window = PyInstallerPackerGUI()
