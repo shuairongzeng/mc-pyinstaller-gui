@@ -1,2 +1,11 @@
-PyQt5>=5.15.11
-pyinstaller>=6.14.1
+# PyInstaller GUI 项目依赖
+# 核心依赖
+PyQt5>=5.15.0
+pyinstaller>=5.0.0
+
+# 可选依赖（用于增强功能）
+# 用于更好的模块检测
+importlib-metadata>=4.0.0
+
+# 用于处理不同格式的图标文件
+Pillow>=8.0.0

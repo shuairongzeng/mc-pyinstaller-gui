@@ -1,0 +1,13 @@
+{
+    "output_dir": "D:\\CustomGit\\mc-pyinstaller-gui\\dist",
+    "is_one_file": true,
+    "is_windowed": false,
+    "enable_upx": false,
+    "clean": true,
+    "log_level": "INFO",
+    "open_output_after_build": true,
+    "auto_detect_modules": true,
+    "use_ast_detection": true,
+    "use_pyinstaller_detection": true,
+    "python_interpreter": "D:/software/anaconda3/envs/paddleEnv/python.exe"
+}
