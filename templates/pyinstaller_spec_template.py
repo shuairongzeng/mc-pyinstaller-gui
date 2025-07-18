@@ -53,7 +53,21 @@ hiddenimports = [
     'importlib.util',
     'importlib.metadata',
     'pkg_resources',
-    
+
+    # XML 解析器相关（解决 pyexpat 问题）
+    'xml.parsers.expat',
+    'xml.etree.ElementTree',
+    'xml.etree.cElementTree',
+    'pyexpat',
+    '_elementtree',
+    'plistlib',
+
+    # 邮件和MIME类型
+    'email.mime',
+    'email.mime.text',
+    'email.mime.multipart',
+    'email.mime.base',
+
     # 常见第三方库
     'setuptools',
 ]
@@ -68,8 +82,51 @@ datas = [
     ('images', 'images'),
 ]
 
-# 二进制文件收集（如果需要）
+# 二进制文件收集（自动检测关键DLL）
 binaries = []
+
+# 自动添加关键的DLL文件（解决常见的conda环境问题）
+def add_critical_dlls():
+    """添加关键的DLL文件到二进制列表"""
+    import sys
+    import os
+
+    critical_dlls = []
+
+    # 检查是否在conda环境中
+    if hasattr(sys, 'prefix'):
+        # 常见的关键DLL文件
+        dll_names = [
+            'libexpat.dll',     # XML解析器
+            'expat.dll',        # XML解析器备用
+            'liblzma.dll',      # LZMA压缩
+            'LIBBZ2.dll',       # BZ2压缩
+            'ffi.dll',          # FFI库
+            'libffi.dll',       # FFI库备用
+            'sqlite3.dll',      # SQLite数据库
+            'libssl.dll',       # SSL库
+            'libcrypto.dll',    # 加密库
+        ]
+
+        # 搜索路径
+        search_paths = [
+            os.path.join(sys.prefix, 'Library', 'bin'),  # conda环境
+            os.path.join(sys.prefix, 'DLLs'),            # Python DLLs
+            os.path.join(sys.prefix, 'bin'),             # 通用bin目录
+        ]
+
+        for search_path in search_paths:
+            if os.path.exists(search_path):
+                for dll_name in dll_names:
+                    dll_path = os.path.join(search_path, dll_name)
+                    if os.path.exists(dll_path):
+                        critical_dlls.append((dll_path, '.'))
+                        print(f"✅ 找到关键DLL: {dll_name}")
+
+    return critical_dlls
+
+# 添加关键DLL到二进制列表
+binaries.extend(add_critical_dlls())
 
 # 排除的模块
 excludes = [

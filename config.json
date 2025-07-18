@@ -8,6 +8,6 @@
     "open_output_after_build": true,
     "auto_detect_modules": true,
     "use_ast_detection": true,
-    "use_pyinstaller_detection": true,
-    "python_interpreter": "D:/software/anaconda3/envs/paddleEnv/python.exe"
+    "use_pyinstaller_detection": false,
+    "python_interpreter": "D:/CustomGit/11/mc-pyinstaller-gui/.conda/python.exe"
 }

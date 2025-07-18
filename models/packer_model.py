@@ -94,6 +94,11 @@ class PyInstallerModel:
             if module not in self.hidden_imports:  # 避免重复
                 cmd.append(f"--hidden-import={module}")
 
+        # 添加关键的二进制文件（DLL）
+        critical_binaries = self._get_critical_binaries()
+        for binary_path in critical_binaries:
+            cmd.append(f"--add-binary={binary_path}")
+
         # 智能检测并添加脚本特定的隐藏导入
         if self.script_path and os.path.exists(self.script_path):
             try:
@@ -236,6 +241,21 @@ coll = COLLECT(
             'encodings.cp1252',
             'encodings.ascii',
             'encodings.latin1',
+            'encodings.gbk',
+
+            # XML 解析器相关（解决 pyexpat 问题）
+            'xml.parsers.expat',
+            'xml.etree.ElementTree',
+            'xml.etree.cElementTree',
+            'pyexpat',
+            '_elementtree',
+            'plistlib',
+
+            # 邮件和MIME类型
+            'email.mime',
+            'email.mime.text',
+            'email.mime.multipart',
+            'email.mime.base',
 
             # JSON和配置
             'json',
@@ -243,6 +263,7 @@ coll = COLLECT(
 
             # 日志
             'logging.handlers',
+            'logging.config',
 
             # 类型检查
             'typing_extensions',
@@ -255,6 +276,45 @@ coll = COLLECT(
             # 常见的第三方库
             'setuptools',
         ]
+
+    def _get_critical_binaries(self) -> List[str]:
+        """获取关键的二进制文件（DLL）路径"""
+        import sys
+        import os
+
+        critical_binaries = []
+
+        # 检查是否在conda环境中
+        if hasattr(sys, 'prefix'):
+            # 常见的关键DLL文件
+            dll_names = [
+                'libexpat.dll',     # XML解析器
+                'expat.dll',        # XML解析器备用
+                'liblzma.dll',      # LZMA压缩
+                'LIBBZ2.dll',       # BZ2压缩
+                'ffi.dll',          # FFI库
+                'libffi.dll',       # FFI库备用
+                'sqlite3.dll',      # SQLite数据库
+                'libssl.dll',       # SSL库
+                'libcrypto.dll',    # 加密库
+            ]
+
+            # 搜索路径
+            search_paths = [
+                os.path.join(sys.prefix, 'Library', 'bin'),  # conda环境
+                os.path.join(sys.prefix, 'DLLs'),            # Python DLLs
+                os.path.join(sys.prefix, 'bin'),             # 通用bin目录
+            ]
+
+            for search_path in search_paths:
+                if os.path.exists(search_path):
+                    for dll_name in dll_names:
+                        dll_path = os.path.join(search_path, dll_name)
+                        if os.path.exists(dll_path):
+                            # 格式：源路径;目标路径
+                            critical_binaries.append(f"{dll_path};.")
+
+        return critical_binaries
 
     def to_dict(self) -> dict:
         """转换为字典格式"""

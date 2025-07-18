@@ -588,7 +588,8 @@ class ModuleDetector:
                 for config_file in config_files:
                     config_path = os.path.join(script_dir, config_file)
                     if os.path.exists(config_path):
-                        args.append(f"--add-data={config_file};.")
+                        # 使用绝对路径避免路径问题
+                        args.append(f"--add-data={os.path.abspath(config_path)};.")
 
         except Exception as e:
             print(f"生成PyInstaller参数失败: {e}")
