@@ -9,5 +9,5 @@
     "auto_detect_modules": true,
     "use_ast_detection": true,
     "use_pyinstaller_detection": false,
-    "python_interpreter": "D:/CustomGit/11/mc-pyinstaller-gui/.conda/python.exe"
+    "python_interpreter": "d:\\CustomGit\\11\\mc-pyinstaller-gui\\.conda\\python.exe"
 }

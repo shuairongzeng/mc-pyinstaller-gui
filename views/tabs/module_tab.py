@@ -7,13 +7,15 @@ from typing import Optional, List
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox,
     QLabel, QLineEdit, QPushButton, QCheckBox, QListWidget,
-    QMessageBox, QProgressBar, QTextEdit, QFileDialog
+    QMessageBox, QProgressBar, QTextEdit, QFileDialog,
+    QRadioButton, QButtonGroup, QScrollArea, QFrame, QSplitter
 )
 from PyQt5.QtCore import pyqtSignal, pyqtSlot, QThread
 
 from config.app_config import AppConfig
 from models.packer_model import PyInstallerModel
 from services.module_detector import ModuleDetector
+from services.python_env_scanner import get_scanner, PythonEnvironment
 
 class ModuleDetectionThread(QThread):
     """模块检测线程"""
@@ -53,8 +55,15 @@ class ModuleTab(QWidget):
         # 设置日志器
         self.logger = logging.getLogger(__name__)
 
+        # Python 环境扫描器
+        self.env_scanner = get_scanner()
+        self.environments: List[PythonEnvironment] = []
+        self.env_button_group = QButtonGroup()
+        self.selected_environment: Optional[PythonEnvironment] = None
+
         self.init_ui()
         self.connect_signals()
+        self.scan_environments()  # 初始化时扫描环境
     
     def init_ui(self) -> None:
         """初始化用户界面"""
@@ -81,22 +90,9 @@ class ModuleTab(QWidget):
         group = QGroupBox("检测设置")
         layout = QVBoxLayout(group)
 
-        # Python解释器选择
-        interpreter_layout = QHBoxLayout()
-        interpreter_layout.addWidget(QLabel("Python解释器:"))
-
-        self.python_interpreter_edit = QLineEdit()
-        self.python_interpreter_edit.setPlaceholderText("留空使用当前环境，或选择conda/venv环境的python.exe")
-        self.python_interpreter_edit.setText(self.config.get("python_interpreter", ""))
-        self.python_interpreter_edit.setToolTip("指定用于模块检测的Python解释器路径\n留空将使用当前环境\n建议选择你的conda虚拟环境中的python.exe")
-        interpreter_layout.addWidget(self.python_interpreter_edit)
-
-        self.browse_interpreter_btn = QPushButton("浏览...")
-        self.browse_interpreter_btn.clicked.connect(self.browse_python_interpreter)
-        self.browse_interpreter_btn.setToolTip("选择Python解释器")
-        interpreter_layout.addWidget(self.browse_interpreter_btn)
-
-        layout.addLayout(interpreter_layout)
+        # Python 环境选择区域
+        env_group = self.create_environment_selection_group()
+        layout.addWidget(env_group)
 
         # 检测方法选择
         self.use_ast_checkbox = QCheckBox("使用AST静态分析")
@@ -110,7 +106,68 @@ class ModuleTab(QWidget):
         layout.addWidget(self.use_pyinstaller_checkbox)
 
         return group
-    
+
+    def create_environment_selection_group(self) -> QGroupBox:
+        """创建环境选择组"""
+        group = QGroupBox("Python 环境选择")
+        layout = QVBoxLayout(group)
+
+        # 顶部控制按钮
+        control_layout = QHBoxLayout()
+
+        self.refresh_env_btn = QPushButton("🔄 刷新环境")
+        self.refresh_env_btn.clicked.connect(self.scan_environments)
+        self.refresh_env_btn.setToolTip("重新扫描系统中的 Python 环境")
+        control_layout.addWidget(self.refresh_env_btn)
+
+        self.install_pyinstaller_btn = QPushButton("📦 安装 PyInstaller")
+        self.install_pyinstaller_btn.clicked.connect(self.install_pyinstaller_to_selected)
+        self.install_pyinstaller_btn.setToolTip("在选中的环境中安装 PyInstaller")
+        self.install_pyinstaller_btn.setEnabled(False)
+        control_layout.addWidget(self.install_pyinstaller_btn)
+
+        control_layout.addStretch()
+        layout.addLayout(control_layout)
+
+        # 环境列表滚动区域
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setMaximumHeight(200)
+        scroll_area.setMinimumHeight(120)
+
+        self.env_list_widget = QWidget()
+        self.env_list_layout = QVBoxLayout(self.env_list_widget)
+        self.env_list_layout.setContentsMargins(5, 5, 5, 5)
+
+        scroll_area.setWidget(self.env_list_widget)
+        layout.addWidget(scroll_area)
+
+        # 手动输入区域（保留原有功能）
+        manual_frame = QFrame()
+        manual_frame.setFrameStyle(QFrame.StyledPanel)
+        manual_layout = QVBoxLayout(manual_frame)
+        manual_layout.setContentsMargins(5, 5, 5, 5)
+
+        manual_label = QLabel("或手动输入解释器路径：")
+        manual_layout.addWidget(manual_label)
+
+        manual_input_layout = QHBoxLayout()
+        self.python_interpreter_edit = QLineEdit()
+        self.python_interpreter_edit.setPlaceholderText("手动输入 Python 解释器路径...")
+        self.python_interpreter_edit.setText(self.config.get("python_interpreter", ""))
+        self.python_interpreter_edit.textChanged.connect(self.on_manual_interpreter_changed)
+        manual_input_layout.addWidget(self.python_interpreter_edit)
+
+        self.browse_interpreter_btn = QPushButton("浏览...")
+        self.browse_interpreter_btn.clicked.connect(self.browse_python_interpreter)
+        self.browse_interpreter_btn.setToolTip("选择Python解释器")
+        manual_input_layout.addWidget(self.browse_interpreter_btn)
+
+        manual_layout.addLayout(manual_input_layout)
+        layout.addWidget(manual_frame)
+
+        return group
+
     def create_control_group(self) -> QGroupBox:
         """创建检测控制组"""
         group = QGroupBox("模块检测")
@@ -210,7 +267,7 @@ class ModuleTab(QWidget):
         """连接信号槽"""
         self.use_ast_checkbox.toggled.connect(self.on_detection_method_changed)
         self.use_pyinstaller_checkbox.toggled.connect(self.on_detection_method_changed)
-        self.python_interpreter_edit.textChanged.connect(self.on_python_interpreter_changed)
+        self.python_interpreter_edit.textChanged.connect(self.on_manual_interpreter_changed)
         self.detected_modules_list.itemDoubleClicked.connect(self.on_module_double_clicked)
     
     @pyqtSlot()
@@ -489,14 +546,6 @@ class ModuleTab(QWidget):
             self.detector.python_interpreter = file_path or self.detector.python_interpreter
 
     @pyqtSlot()
-    def on_python_interpreter_changed(self) -> None:
-        """Python解释器路径变更"""
-        interpreter_path = self.python_interpreter_edit.text().strip()
-        self.config.set("python_interpreter", interpreter_path)
-        # 更新检测器设置
-        self.detector.python_interpreter = interpreter_path or self.detector.python_interpreter
-
-    @pyqtSlot()
     def on_detection_method_changed(self) -> None:
         """检测方法变更"""
         self.config.set("use_ast_detection", self.use_ast_checkbox.isChecked())
@@ -507,3 +556,151 @@ class ModuleTab(QWidget):
         self.hidden_imports_list.clear()
         for module in self.model.hidden_imports:
             self.hidden_imports_list.addItem(module)
+
+    # ==================== 环境管理相关方法 ====================
+
+    @pyqtSlot()
+    def scan_environments(self) -> None:
+        """扫描 Python 环境"""
+        try:
+            self.refresh_env_btn.setEnabled(False)
+            self.refresh_env_btn.setText("🔄 扫描中...")
+
+            # 扫描环境
+            self.environments = self.env_scanner.scan_all_environments()
+
+            # 更新 UI
+            self.update_environment_list()
+
+            self.logger.info(f"扫描到 {len(self.environments)} 个 Python 环境")
+
+        except Exception as e:
+            self.logger.error(f"扫描环境失败: {e}")
+            QMessageBox.warning(self, "错误", f"扫描环境失败: {str(e)}")
+        finally:
+            self.refresh_env_btn.setEnabled(True)
+            self.refresh_env_btn.setText("🔄 刷新环境")
+
+    def update_environment_list(self) -> None:
+        """更新环境列表显示"""
+        # 清空现有的单选按钮
+        for button in self.env_button_group.buttons():
+            self.env_button_group.removeButton(button)
+            button.deleteLater()
+
+        # 清空布局
+        while self.env_list_layout.count():
+            child = self.env_list_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+        if not self.environments:
+            no_env_label = QLabel("未找到 Python 环境，请点击刷新或手动输入路径")
+            no_env_label.setStyleSheet("color: #666; font-style: italic;")
+            self.env_list_layout.addWidget(no_env_label)
+            return
+
+        # 添加环境单选按钮
+        current_interpreter = self.config.get("python_interpreter", "")
+
+        for i, env in enumerate(self.environments):
+            radio_btn = QRadioButton(env.get_display_name())
+            radio_btn.setToolTip(f"路径: {env.path}\n描述: {env.description}")
+
+            # 设置样式
+            if not env.is_available:
+                radio_btn.setStyleSheet("color: #999;")
+                radio_btn.setEnabled(False)
+            elif not env.has_pyinstaller:
+                radio_btn.setStyleSheet("color: #ff6600;")
+            else:
+                radio_btn.setStyleSheet("color: #006600;")
+
+            # 检查是否为当前选中的环境
+            if current_interpreter and env.path == current_interpreter:
+                radio_btn.setChecked(True)
+                self.selected_environment = env
+                self.install_pyinstaller_btn.setEnabled(not env.has_pyinstaller)
+            elif not current_interpreter and env.is_current:
+                radio_btn.setChecked(True)
+                self.selected_environment = env
+                self.install_pyinstaller_btn.setEnabled(not env.has_pyinstaller)
+
+            # 连接信号
+            radio_btn.toggled.connect(lambda checked, environment=env: self.on_environment_selected(checked, environment))
+
+            self.env_button_group.addButton(radio_btn, i)
+            self.env_list_layout.addWidget(radio_btn)
+
+        self.env_list_layout.addStretch()
+
+    @pyqtSlot(bool, PythonEnvironment)
+    def on_environment_selected(self, checked: bool, environment: PythonEnvironment) -> None:
+        """环境选择变更"""
+        if checked:
+            self.selected_environment = environment
+
+            # 更新配置
+            self.config.set("python_interpreter", environment.path)
+
+            # 更新手动输入框
+            self.python_interpreter_edit.setText(environment.path)
+
+            # 更新检测器设置
+            self.detector.python_interpreter = environment.path
+
+            # 更新安装按钮状态
+            self.install_pyinstaller_btn.setEnabled(not environment.has_pyinstaller)
+
+            self.logger.info(f"选择环境: {environment.name} ({environment.path})")
+
+    @pyqtSlot()
+    def on_manual_interpreter_changed(self) -> None:
+        """手动输入解释器路径变更"""
+        interpreter_path = self.python_interpreter_edit.text().strip()
+
+        # 如果手动输入了路径，取消所有单选按钮的选择
+        if interpreter_path:
+            for button in self.env_button_group.buttons():
+                button.setChecked(False)
+            self.selected_environment = None
+            self.install_pyinstaller_btn.setEnabled(False)
+
+        # 更新配置和检测器
+        self.config.set("python_interpreter", interpreter_path)
+        self.detector.python_interpreter = interpreter_path or self.detector.python_interpreter
+
+    @pyqtSlot()
+    def install_pyinstaller_to_selected(self) -> None:
+        """在选中的环境中安装 PyInstaller"""
+        if not self.selected_environment:
+            QMessageBox.warning(self, "错误", "请先选择一个 Python 环境")
+            return
+
+        reply = QMessageBox.question(
+            self, "确认安装",
+            f"确定要在以下环境中安装 PyInstaller 吗？\n\n"
+            f"环境: {self.selected_environment.name}\n"
+            f"路径: {self.selected_environment.path}",
+            QMessageBox.Yes | QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            self.install_pyinstaller_btn.setEnabled(False)
+            self.install_pyinstaller_btn.setText("📦 安装中...")
+
+            try:
+                success = self.env_scanner.install_pyinstaller(self.selected_environment.path)
+
+                if success:
+                    QMessageBox.information(self, "成功", "PyInstaller 安装成功！")
+                    # 重新扫描环境以更新状态
+                    self.scan_environments()
+                else:
+                    QMessageBox.warning(self, "失败", "PyInstaller 安装失败，请检查网络连接和权限")
+
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"安装过程中出现错误: {str(e)}")
+            finally:
+                self.install_pyinstaller_btn.setEnabled(True)
+                self.install_pyinstaller_btn.setText("📦 安装 PyInstaller")

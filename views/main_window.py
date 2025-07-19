@@ -267,6 +267,10 @@ class MainWindow(QMainWindow):
         # 切换到日志标签页
         self.tab_widget.setCurrentWidget(self.log_tab)
 
+        # 清空上一次的打包日志
+        if self.log_tab:
+            self.log_tab.clear_log()
+
         # 创建打包服务
         if self.controller:
             self.package_service = self.controller.create_package_service()

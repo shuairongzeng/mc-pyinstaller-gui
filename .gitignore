@@ -20,3 +20,4 @@ dist/
 /logs/*.log
 test_dist/simple_test.exe
 test_dist/test_xml_app.exe
+project_config.json
