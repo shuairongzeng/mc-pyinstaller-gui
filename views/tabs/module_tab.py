@@ -44,6 +44,8 @@ class ModuleTab(QWidget):
     """模块管理标签页"""
 
     config_changed = pyqtSignal()
+    # 新增信号：静默检测完成
+    silent_detection_finished = pyqtSignal(list, dict)  # modules, analysis_result
 
     def __init__(self, model: PyInstallerModel, config: AppConfig, detector: ModuleDetector):
         super().__init__()
@@ -51,6 +53,7 @@ class ModuleTab(QWidget):
         self.config = config
         self.detector = detector
         self.detection_thread: Optional[ModuleDetectionThread] = None
+        self._is_silent_detection = False  # 跟踪是否是静默检测
 
         # 设置日志器
         self.logger = logging.getLogger(__name__)
@@ -271,19 +274,26 @@ class ModuleTab(QWidget):
         self.detected_modules_list.itemDoubleClicked.connect(self.on_module_double_clicked)
     
     @pyqtSlot()
-    def start_detection(self) -> None:
-        """开始模块检测"""
-        self.logger.info("🔍 开始模块检测")
+    def start_detection(self, silent: bool = False) -> None:
+        """开始模块检测
+
+        Args:
+            silent: 是否静默执行（不显示UI反馈）
+        """
+        self._is_silent_detection = silent
+        self.logger.info("🔍 开始模块检测" + (" (静默模式)" if silent else ""))
         self.logger.info(f"脚本路径: {self.model.script_path}")
 
         if not self.model.script_path:
             self.logger.warning("❌ 未选择Python脚本")
-            QMessageBox.warning(self, "错误", "请先选择要检测的Python脚本")
+            if not silent:
+                QMessageBox.warning(self, "错误", "请先选择要检测的Python脚本")
             return
 
         if not os.path.exists(self.model.script_path):
             self.logger.error(f"❌ 脚本文件不存在: {self.model.script_path}")
-            QMessageBox.warning(self, "错误", f"脚本文件不存在: {self.model.script_path}")
+            if not silent:
+                QMessageBox.warning(self, "错误", f"脚本文件不存在: {self.model.script_path}")
             return
 
         # 更新检测器设置
@@ -291,7 +301,7 @@ class ModuleTab(QWidget):
         self.detector.use_pyinstaller = self.use_pyinstaller_checkbox.isChecked()
 
         self.logger.info(f"检测设置 - AST: {self.detector.use_ast}, PyInstaller: {self.detector.use_pyinstaller}")
-        
+
         # 创建检测线程
         self.logger.info("📝 创建检测线程")
         self.detection_thread = ModuleDetectionThread(self.detector, self.model.script_path)
@@ -299,12 +309,13 @@ class ModuleTab(QWidget):
         self.detection_thread.finished_signal.connect(self.on_detection_finished)
         self.detection_thread.error_signal.connect(self.on_detection_error)
 
-        # 更新UI状态
-        self.logger.info("🔄 更新UI状态")
-        self.detect_btn.setEnabled(False)
-        self.stop_detect_btn.setEnabled(True)
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)  # 不确定进度
+        # 更新UI状态（仅在非静默模式下）
+        if not silent:
+            self.logger.info("🔄 更新UI状态")
+            self.detect_btn.setEnabled(False)
+            self.stop_detect_btn.setEnabled(True)
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setRange(0, 0)  # 不确定进度
 
         # 开始检测
         self.logger.info("🚀 启动检测线程")
@@ -324,6 +335,13 @@ class ModuleTab(QWidget):
     def on_detection_progress(self, message: str) -> None:
         """检测进度更新"""
         self.status_label.setText(message)
+
+        # 如果是静默模式，更新主窗口状态栏
+        if self._is_silent_detection:
+            # 获取主窗口
+            main_window = self.window()
+            if main_window and hasattr(main_window, 'statusBar'):
+                main_window.statusBar().showMessage(f"模块检测: {message}")
     
     @pyqtSlot(list)
     def on_detection_finished(self, modules: List[str]) -> None:
@@ -331,28 +349,63 @@ class ModuleTab(QWidget):
         self.logger.info(f"✅ 检测完成，发现 {len(modules)} 个模块")
         self.logger.info(f"检测到的模块: {sorted(modules)}")
 
-        self.reset_detection_ui()
+        # 仅在非静默模式下更新UI
+        if not self._is_silent_detection:
+            self.reset_detection_ui()
 
-        # 显示结果
-        self.detected_modules_list.clear()
-        for module in sorted(modules):
-            self.detected_modules_list.addItem(module)
+            # 显示结果
+            self.detected_modules_list.clear()
+            for module in sorted(modules):
+                self.detected_modules_list.addItem(module)
 
         # 进行智能分析
         self.logger.info("🧠 开始智能分析")
         if self.model.script_path and os.path.exists(self.model.script_path):
             try:
                 self.logger.info(f"分析脚本: {self.model.script_path}")
-                analysis = self.detector.analyze_missing_modules(self.model.script_path)
 
-                self.logger.info(f"智能分析结果:")
-                self.logger.info(f"  - 检测到模块: {len(analysis['detected_modules'])}")
-                self.logger.info(f"  - 缺失模块: {len(analysis['missing_modules'])}")
-                self.logger.info(f"  - 推荐隐藏导入: {len(analysis['hidden_imports'])}")
-                self.logger.info(f"  - 推荐collect-all: {len(analysis['collect_all'])}")
+                # 优先使用增强的模块检测器
+                try:
+                    from services.enhanced_module_detector import EnhancedModuleDetector
+                    enhanced_detector = EnhancedModuleDetector(cache_dir=".gui_cache", max_workers=2)
 
-                # 显示分析结果
-                self.show_analysis_results(analysis)
+                    def gui_callback(message):
+                        self.logger.info(f"🔍 {message}")
+                        self.status_label.setText(message)
+
+                    self.logger.info("🚀 使用增强模块检测器进行分析")
+                    enhanced_result = enhanced_detector.detect_modules_with_cache(self.model.script_path, gui_callback)
+
+                    # 转换为原始格式以兼容现有代码
+                    analysis = {
+                        'detected_modules': list(enhanced_result.detected_modules),
+                        'missing_modules': list(enhanced_result.missing_modules),
+                        'hidden_imports': enhanced_result.hidden_imports,
+                        'collect_all': enhanced_result.collect_all,
+                        'suggestions': enhanced_result.recommendations,
+                        'data_files': enhanced_result.data_files,
+                        'framework_configs': enhanced_result.framework_configs
+                    }
+
+                    self.logger.info(f"✅ 增强智能分析结果:")
+                    self.logger.info(f"  - 检测到模块: {len(analysis['detected_modules'])}")
+                    self.logger.info(f"  - 缺失模块: {len(analysis['missing_modules'])}")
+                    self.logger.info(f"  - 推荐隐藏导入: {len(analysis['hidden_imports'])}")
+                    self.logger.info(f"  - 推荐collect-all: {len(analysis['collect_all'])}")
+                    self.logger.info(f"  - 框架配置: {len(analysis['framework_configs'])}")
+                    self.logger.info(f"  - 缓存命中: {'是' if enhanced_result.cache_hit else '否'}")
+                    self.logger.info(f"  - 检测时间: {enhanced_result.detection_time:.2f}s")
+
+                except ImportError as ie:
+                    self.logger.warning(f"⚠️  增强模块检测器不可用: {ie}")
+                    self.logger.info("🔄 回退到原始模块检测器")
+                    analysis = self.detector.analyze_missing_modules(self.model.script_path)
+
+                    self.logger.info(f"📊 原始智能分析结果:")
+                    self.logger.info(f"  - 检测到模块: {len(analysis['detected_modules'])}")
+                    self.logger.info(f"  - 缺失模块: {len(analysis['missing_modules'])}")
+                    self.logger.info(f"  - 推荐隐藏导入: {len(analysis['hidden_imports'])}")
+                    self.logger.info(f"  - 推荐collect-all: {len(analysis['collect_all'])}")
 
                 # 自动应用智能检测的隐藏导入
                 if self.config.get("auto_add_detected_modules", True):
@@ -368,17 +421,42 @@ class ModuleTab(QWidget):
                     self.refresh_hidden_imports_list()
                     self.config_changed.emit()
 
-                self.status_label.setText(f"智能分析完成，发现 {len(modules)} 个模块，推荐 {len(analysis['hidden_imports'])} 个隐藏导入")
+                # 更新状态信息
+                framework_info = ""
+                if 'framework_configs' in analysis and analysis['framework_configs']:
+                    frameworks = list(analysis['framework_configs'].keys())
+                    framework_info = f"，检测到框架: {', '.join(frameworks)}"
+
+                # 根据模式决定是否显示结果对话框和更新状态
+                if self._is_silent_detection:
+                    # 静默模式：发出信号
+                    self.silent_detection_finished.emit(modules, analysis)
+                else:
+                    # 非静默模式：显示结果对话框和更新状态
+                    self.show_analysis_results(analysis)
+                    self.status_label.setText(f"智能分析完成，发现 {len(modules)} 个模块，推荐 {len(analysis['hidden_imports'])} 个隐藏导入{framework_info}")
 
             except Exception as e:
                 self.logger.error(f"❌ 智能分析失败: {str(e)}")
                 import traceback
                 self.logger.error(f"错误详情: {traceback.format_exc()}")
-                self.status_label.setText(f"检测完成，发现 {len(modules)} 个模块（智能分析失败: {str(e)}）")
+
+                if self._is_silent_detection:
+                    # 静默模式下也发出信号，但带有空的分析结果
+                    empty_analysis = {'detected_modules': modules, 'hidden_imports': [], 'collect_all': [], 'data_files': []}
+                    self.silent_detection_finished.emit(modules, empty_analysis)
+                else:
+                    self.status_label.setText(f"检测完成，发现 {len(modules)} 个模块（智能分析失败: {str(e)}）")
         else:
-            self.status_label.setText(f"检测完成，发现 {len(modules)} 个模块")
-        
-        if not modules:
+            if not self._is_silent_detection:
+                self.status_label.setText(f"检测完成，发现 {len(modules)} 个模块")
+            else:
+                # 静默模式下发出信号，但带有空的分析结果
+                empty_analysis = {'detected_modules': modules, 'hidden_imports': [], 'collect_all': [], 'data_files': []}
+                self.silent_detection_finished.emit(modules, empty_analysis)
+
+        # 仅在非静默模式下显示消息框
+        if not modules and not self._is_silent_detection:
             QMessageBox.information(self, "检测完成", "未检测到明显的导入模块")
 
     def show_analysis_results(self, analysis: dict) -> None:

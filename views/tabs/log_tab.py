@@ -181,6 +181,10 @@ class LogTab(QWidget):
             self.command_preview.setPlainText(command)
         else:
             self.command_preview.setPlainText("无法生成命令，请检查配置")
+
+    def update_progress(self, progress: int) -> None:
+        """更新进度 - 兼容旧接口"""
+        self.set_progress(progress)
     
     def set_progress(self, value: int, maximum: int = 100) -> None:
         """设置进度"""

@@ -21,3 +21,9 @@ dist/
 test_dist/simple_test.exe
 test_dist/test_xml_app.exe
 project_config.json
+YOLO.json
+.gui_cache/modules_059b6e4d4ea8b6eef43b6f93466667e1.json
+.gui_cache/modules_23066e794638e5ebdd439ea53dd7cbc9.json
+.pyinstaller_cache/modules_23066e794638e5ebdd439ea53dd7cbc9.json
+config.json
+

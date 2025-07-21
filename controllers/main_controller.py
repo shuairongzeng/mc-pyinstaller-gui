@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import QMessageBox
 
 from config.app_config import AppConfig
 from models.packer_model import PyInstallerModel
-from services.package_service import PackageService, PyInstallerChecker
+from services.package_service import PackageService, PyInstallerChecker, AsyncPackageService
 from services.module_detector import ModuleDetector
 
 class MainController(QObject):
@@ -47,6 +47,12 @@ class MainController(QObject):
         """创建打包服务"""
         python_interpreter = self.config.get("python_interpreter", "")
         self.package_service = PackageService(self.model, python_interpreter)
+
+    def create_async_package_service(self) -> AsyncPackageService:
+        """创建异步打包服务"""
+        python_interpreter = self.config.get("python_interpreter", "")
+        timeout = self.config.get("package_timeout", 300)
+        return AsyncPackageService(self.model, python_interpreter, timeout)
         return self.package_service
     
     def get_module_detector(self) -> ModuleDetector:

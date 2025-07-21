@@ -1,6 +1,7 @@
 """
 基本设置标签页
 """
+import os
 from typing import Optional
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox,
@@ -15,8 +16,9 @@ from models.packer_model import PyInstallerModel
 
 class BasicTab(QWidget):
     """基本设置标签页"""
-    
+
     config_changed = pyqtSignal()
+    script_selected = pyqtSignal(str)  # 新增信号：脚本选择完成
     
     def __init__(self, model: PyInstallerModel, config: AppConfig):
         super().__init__()
@@ -218,6 +220,10 @@ class BasicTab(QWidget):
         """脚本路径变更"""
         self.model.script_path = text
         self.config_changed.emit()
+
+        # 如果脚本路径有效，发出脚本选择信号
+        if text and os.path.exists(text) and text.lower().endswith('.py'):
+            self.script_selected.emit(text)
     
     @pyqtSlot(str)
     def on_icon_path_changed(self, text: str) -> None:
