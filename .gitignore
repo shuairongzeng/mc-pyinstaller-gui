@@ -33,3 +33,8 @@ cache/61d3706f3c27436d2145dd2254c89bb2.cache
 cache/1a85f2b191a5237695b416063eabe35c.cache
 cache/cache_index.json
 config.json
+.precise_cache/*
+*.cache
+.precise_gui_cache/*
+cache/*
+performance_cache/*

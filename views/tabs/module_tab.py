@@ -19,26 +19,220 @@ from services.python_env_scanner import get_scanner, PythonEnvironment
 
 class ModuleDetectionThread(QThread):
     """模块检测线程"""
-    
+
     progress_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(list)
+    analysis_finished_signal = pyqtSignal(dict)  # 新增：用于精准分析结果
     error_signal = pyqtSignal(str)
-    
-    def __init__(self, detector: ModuleDetector, script_path: str):
+
+    def __init__(self, detector: ModuleDetector, script_path: str, config=None, use_precise_analysis=True):
         super().__init__()
         self.detector = detector
         self.script_path = script_path
-    
+        self.config = config
+        self.use_precise_analysis = use_precise_analysis
+        self._should_stop = False
+
+    def stop(self):
+        """停止检测"""
+        self._should_stop = True
+
     def run(self) -> None:
         """执行模块检测"""
         try:
-            self.progress_signal.emit("开始检测模块...")
-            modules = self.detector.detect_modules(self.script_path)
-            # 将set转换为list，因为信号期望list类型
-            modules_list = list(modules) if isinstance(modules, set) else modules
-            self.finished_signal.emit(modules_list)
+            if self.use_precise_analysis and self.config:
+                self._run_precise_analysis()
+            else:
+                self._run_traditional_detection()
         except Exception as e:
             self.error_signal.emit(str(e))
+
+    def _run_traditional_detection(self):
+        """运行传统检测"""
+        self.progress_signal.emit("开始检测模块...")
+        modules = self.detector.detect_modules(self.script_path)
+        # 将set转换为list，因为信号期望list类型
+        modules_list = list(modules) if isinstance(modules, set) else modules
+        self.finished_signal.emit(modules_list)
+
+    def _run_precise_analysis(self):
+        """运行精准分析（使用新的智能分析器）"""
+        try:
+            self.progress_signal.emit("初始化智能模块分析器...")
+
+            if self._should_stop:
+                return
+
+            # 优先使用新的智能分析器
+            try:
+                # 尝试使用性能优化检测器
+                from services.performance_optimized_detector import PerformanceOptimizedDetector
+
+                def progress_callback(message):
+                    if not self._should_stop:
+                        self.progress_signal.emit(f"🧠 {message}")
+
+                self.progress_signal.emit("🚀 使用性能优化智能检测器进行分析")
+
+                # 创建性能优化检测器
+                detector = PerformanceOptimizedDetector(
+                    python_interpreter=self.config.get("python_interpreter", "") if self.config else "",
+                    cache_dir="cache",
+                    max_workers=4,
+                    cache_ttl=3600
+                )
+
+                if self._should_stop:
+                    return
+
+                # 执行优化检测
+                optimized_result = detector.detect_modules_optimized(
+                    script_path=self.script_path,
+                    output_callback=progress_callback,
+                    use_execution=True,
+                    force_refresh=False,
+                    enable_profiling=False
+                )
+
+                if self._should_stop:
+                    return
+
+                # 获取智能分析结果
+                intelligent_result = optimized_result.analysis_result
+
+                # 转换为原始格式以兼容现有代码
+                all_modules = intelligent_result.recommended_modules
+                analysis = {
+                    'detected_modules': list(all_modules),
+                    'missing_modules': [],  # 智能分析器不直接提供缺失模块
+                    'hidden_imports': intelligent_result.hidden_imports,
+                    'collect_all': intelligent_result.collect_all,
+                    'suggestions': intelligent_result.recommendations + intelligent_result.warnings,
+                    'data_files': intelligent_result.data_files,
+                    'framework_configs': {},
+                    'intelligent_result': intelligent_result,
+                    'performance_metrics': optimized_result.performance_metrics,
+                    'cache_info': {
+                        'cache_hit': optimized_result.cache_hit,
+                        'cache_source': optimized_result.cache_source
+                    },
+                    'analysis_successful': True,
+                    'analysis_type': 'intelligent_optimized'
+                }
+
+                # 发送结果信号
+                self.finished_signal.emit(list(all_modules))
+                self.analysis_finished_signal.emit(analysis)
+
+            except ImportError:
+                # 回退到智能分析器
+                try:
+                    from services.intelligent_module_analyzer import IntelligentModuleAnalyzer
+
+                    self.progress_signal.emit("🚀 使用智能模块分析器进行分析")
+
+                    # 创建智能分析器
+                    analyzer = IntelligentModuleAnalyzer(
+                        python_interpreter=self.config.get("python_interpreter", "") if self.config else "",
+                        timeout=60
+                    )
+
+                    if self._should_stop:
+                        return
+
+                    # 执行智能分析
+                    intelligent_result = analyzer.analyze_script(
+                        script_path=self.script_path,
+                        output_callback=progress_callback,
+                        use_execution=True,
+                        enable_ml_scoring=True
+                    )
+
+                    if self._should_stop:
+                        return
+
+                    # 转换为原始格式以兼容现有代码
+                    all_modules = intelligent_result.recommended_modules
+                    analysis = {
+                        'detected_modules': list(all_modules),
+                        'missing_modules': [],
+                        'hidden_imports': intelligent_result.hidden_imports,
+                        'collect_all': intelligent_result.collect_all,
+                        'suggestions': intelligent_result.recommendations + intelligent_result.warnings,
+                        'data_files': intelligent_result.data_files,
+                        'framework_configs': {},
+                        'intelligent_result': intelligent_result,
+                        'analysis_successful': True,
+                        'analysis_type': 'intelligent'
+                    }
+
+                    # 发送结果信号
+                    self.finished_signal.emit(list(all_modules))
+                    self.analysis_finished_signal.emit(analysis)
+
+                except ImportError:
+                    # 最后回退到原始分析器
+                    from services.precise_dependency_analyzer import PreciseDependencyAnalyzer
+                    from services.dynamic_dependency_tracker import DynamicDependencyTracker
+
+                    self.progress_signal.emit("🚀 使用精准依赖分析器进行分析")
+
+                    # 创建精准分析器
+                    precise_analyzer = PreciseDependencyAnalyzer(
+                        python_interpreter=self.config.get("python_interpreter", "") if self.config else "",
+                        cache_dir=".precise_gui_cache"
+                    )
+
+                    if self._should_stop:
+                        return
+
+                    # 执行精准分析
+                    precise_result = precise_analyzer.analyze_dependencies(self.script_path, progress_callback)
+
+                    if self._should_stop:
+                        return
+
+                    # 创建动态追踪器
+                    dynamic_tracker = DynamicDependencyTracker(
+                        python_interpreter=self.config.get("python_interpreter", "") if self.config else "",
+                        timeout=30
+                    )
+
+                    # 执行动态分析（仅静态分析，不执行脚本）
+                    dynamic_result = dynamic_tracker.analyze_dynamic_dependencies(
+                        self.script_path, progress_callback, use_execution=False
+                    )
+
+                    if self._should_stop:
+                        return
+
+                    # 转换为原始格式以兼容现有代码
+                    all_modules = precise_result.standard_modules | precise_result.third_party_modules | precise_result.local_modules
+                    analysis = {
+                        'detected_modules': list(all_modules),
+                        'missing_modules': list(precise_result.missing_modules),
+                        'hidden_imports': precise_result.hidden_imports,
+                        'collect_all': precise_result.collect_all,
+                        'suggestions': precise_result.recommendations + precise_result.warnings,
+                        'data_files': precise_result.data_files,
+                        'framework_configs': {},
+                        'precise_result': precise_result,
+                        'dynamic_result': dynamic_result,
+                        'analysis_successful': True,
+                        'analysis_type': 'precise_fallback'
+                    }
+
+                # 发送结果
+                self.finished_signal.emit(list(all_modules))
+                self.analysis_finished_signal.emit(analysis)
+
+            except ImportError as ie:
+                self.progress_signal.emit(f"⚠️  精准依赖分析器不可用: {ie}")
+                self.progress_signal.emit("🔄 回退到传统检测器")
+                self._run_traditional_detection()
+
+        except Exception as e:
+            self.error_signal.emit(f"精准分析失败: {str(e)}")
 
 class ModuleTab(QWidget):
     """模块管理标签页"""
@@ -304,9 +498,15 @@ class ModuleTab(QWidget):
 
         # 创建检测线程
         self.logger.info("📝 创建检测线程")
-        self.detection_thread = ModuleDetectionThread(self.detector, self.model.script_path)
+        self.detection_thread = ModuleDetectionThread(
+            self.detector,
+            self.model.script_path,
+            self.config,
+            use_precise_analysis=True
+        )
         self.detection_thread.progress_signal.connect(self.on_detection_progress)
         self.detection_thread.finished_signal.connect(self.on_detection_finished)
+        self.detection_thread.analysis_finished_signal.connect(self.on_analysis_finished)
         self.detection_thread.error_signal.connect(self.on_detection_error)
 
         # 更新UI状态（仅在非静默模式下）
@@ -320,14 +520,49 @@ class ModuleTab(QWidget):
         # 开始检测
         self.logger.info("🚀 启动检测线程")
         self.detection_thread.start()
+
+    @pyqtSlot(dict)
+    def on_analysis_finished(self, analysis: dict) -> None:
+        """精准分析完成处理"""
+        self.logger.info("🎯 精准分析完成")
+
+        # 重置UI状态（停止进度条等）
+        self.reset_detection_ui()
+
+        # 如果是静默模式，发出信号
+        if self._is_silent_detection:
+            self.silent_detection_finished.emit(analysis['detected_modules'], analysis)
+        else:
+            # 非静默模式，显示分析结果
+            self.show_analysis_results(analysis)
+
+            # 自动应用检测结果到打包配置
+            self._apply_analysis_to_packer_model(analysis)
+
+            # 更新状态标签
+            module_count = len(analysis.get('detected_modules', []))
+            analysis_type = analysis.get('analysis_type', 'unknown')
+
+            if analysis_type == 'intelligent_optimized':
+                self.status_label.setText(f"🧠 智能优化检测完成，发现 {module_count} 个模块")
+            elif analysis_type == 'intelligent':
+                self.status_label.setText(f"🧠 智能检测完成，发现 {module_count} 个模块")
+            else:
+                self.status_label.setText(f"🎯 精准检测完成，发现 {module_count} 个模块")
     
     @pyqtSlot()
     def stop_detection(self) -> None:
         """停止模块检测"""
         if self.detection_thread and self.detection_thread.isRunning():
-            self.detection_thread.terminate()
+            # 优雅停止
+            self.detection_thread.stop()
             self.detection_thread.wait(3000)
-        
+
+            # 如果还在运行，强制终止
+            if self.detection_thread.isRunning():
+                self.detection_thread.terminate()
+                self.detection_thread.wait(1000)
+
         self.reset_detection_ui()
         self.status_label.setText("检测已停止")
     
@@ -358,102 +593,16 @@ class ModuleTab(QWidget):
             for module in sorted(modules):
                 self.detected_modules_list.addItem(module)
 
-        # 进行智能分析
-        self.logger.info("🧠 开始智能分析")
-        if self.model.script_path and os.path.exists(self.model.script_path):
-            try:
-                self.logger.info(f"分析脚本: {self.model.script_path}")
+        # 智能分析现在在线程中处理，这里只需要等待结果
+        self.logger.info("🧠 智能分析将在后台线程中执行")
 
-                # 优先使用增强的模块检测器
-                try:
-                    from services.enhanced_module_detector import EnhancedModuleDetector
-                    enhanced_detector = EnhancedModuleDetector(cache_dir=".gui_cache", max_workers=2)
-
-                    def gui_callback(message):
-                        self.logger.info(f"🔍 {message}")
-                        self.status_label.setText(message)
-
-                    self.logger.info("🚀 使用增强模块检测器进行分析")
-                    enhanced_result = enhanced_detector.detect_modules_with_cache(self.model.script_path, gui_callback)
-
-                    # 转换为原始格式以兼容现有代码
-                    analysis = {
-                        'detected_modules': list(enhanced_result.detected_modules),
-                        'missing_modules': list(enhanced_result.missing_modules),
-                        'hidden_imports': enhanced_result.hidden_imports,
-                        'collect_all': enhanced_result.collect_all,
-                        'suggestions': enhanced_result.recommendations,
-                        'data_files': enhanced_result.data_files,
-                        'framework_configs': enhanced_result.framework_configs
-                    }
-
-                    self.logger.info(f"✅ 增强智能分析结果:")
-                    self.logger.info(f"  - 检测到模块: {len(analysis['detected_modules'])}")
-                    self.logger.info(f"  - 缺失模块: {len(analysis['missing_modules'])}")
-                    self.logger.info(f"  - 推荐隐藏导入: {len(analysis['hidden_imports'])}")
-                    self.logger.info(f"  - 推荐collect-all: {len(analysis['collect_all'])}")
-                    self.logger.info(f"  - 框架配置: {len(analysis['framework_configs'])}")
-                    self.logger.info(f"  - 缓存命中: {'是' if enhanced_result.cache_hit else '否'}")
-                    self.logger.info(f"  - 检测时间: {enhanced_result.detection_time:.2f}s")
-
-                except ImportError as ie:
-                    self.logger.warning(f"⚠️  增强模块检测器不可用: {ie}")
-                    self.logger.info("🔄 回退到原始模块检测器")
-                    analysis = self.detector.analyze_missing_modules(self.model.script_path)
-
-                    self.logger.info(f"📊 原始智能分析结果:")
-                    self.logger.info(f"  - 检测到模块: {len(analysis['detected_modules'])}")
-                    self.logger.info(f"  - 缺失模块: {len(analysis['missing_modules'])}")
-                    self.logger.info(f"  - 推荐隐藏导入: {len(analysis['hidden_imports'])}")
-                    self.logger.info(f"  - 推荐collect-all: {len(analysis['collect_all'])}")
-
-                # 自动应用智能检测的隐藏导入
-                if self.config.get("auto_add_detected_modules", True):
-                    self.logger.info("🔧 自动应用智能检测的隐藏导入")
-                    added_count = 0
-                    # 添加智能检测的隐藏导入
-                    for module in analysis['hidden_imports']:
-                        if module not in self.model.hidden_imports:
-                            self.model.hidden_imports.append(module)
-                            added_count += 1
-
-                    self.logger.info(f"添加了 {added_count} 个隐藏导入")
-                    self.refresh_hidden_imports_list()
-                    self.config_changed.emit()
-
-                # 更新状态信息
-                framework_info = ""
-                if 'framework_configs' in analysis and analysis['framework_configs']:
-                    frameworks = list(analysis['framework_configs'].keys())
-                    framework_info = f"，检测到框架: {', '.join(frameworks)}"
-
-                # 根据模式决定是否显示结果对话框和更新状态
-                if self._is_silent_detection:
-                    # 静默模式：发出信号
-                    self.silent_detection_finished.emit(modules, analysis)
-                else:
-                    # 非静默模式：显示结果对话框和更新状态
-                    self.show_analysis_results(analysis)
-                    self.status_label.setText(f"智能分析完成，发现 {len(modules)} 个模块，推荐 {len(analysis['hidden_imports'])} 个隐藏导入{framework_info}")
-
-            except Exception as e:
-                self.logger.error(f"❌ 智能分析失败: {str(e)}")
-                import traceback
-                self.logger.error(f"错误详情: {traceback.format_exc()}")
-
-                if self._is_silent_detection:
-                    # 静默模式下也发出信号，但带有空的分析结果
-                    empty_analysis = {'detected_modules': modules, 'hidden_imports': [], 'collect_all': [], 'data_files': []}
-                    self.silent_detection_finished.emit(modules, empty_analysis)
-                else:
-                    self.status_label.setText(f"检测完成，发现 {len(modules)} 个模块（智能分析失败: {str(e)}）")
+        # 对于传统检测，仍然显示基本结果
+        if not self._is_silent_detection:
+            self.status_label.setText(f"检测完成，发现 {len(modules)} 个模块")
         else:
-            if not self._is_silent_detection:
-                self.status_label.setText(f"检测完成，发现 {len(modules)} 个模块")
-            else:
-                # 静默模式下发出信号，但带有空的分析结果
-                empty_analysis = {'detected_modules': modules, 'hidden_imports': [], 'collect_all': [], 'data_files': []}
-                self.silent_detection_finished.emit(modules, empty_analysis)
+            # 静默模式下发出信号，但带有空的分析结果
+            empty_analysis = {'detected_modules': modules, 'hidden_imports': [], 'collect_all': [], 'data_files': []}
+            self.silent_detection_finished.emit(modules, empty_analysis)
 
         # 仅在非静默模式下显示消息框
         if not modules and not self._is_silent_detection:
@@ -461,54 +610,232 @@ class ModuleTab(QWidget):
 
     def show_analysis_results(self, analysis: dict) -> None:
         """显示分析结果"""
-        from PyQt5.QtWidgets import QMessageBox, QTextEdit, QVBoxLayout, QDialog, QPushButton
+        from PyQt5.QtWidgets import QMessageBox, QTextEdit, QVBoxLayout, QDialog, QPushButton, QTabWidget
 
         # 创建结果对话框
         dialog = QDialog(self)
-        dialog.setWindowTitle("智能模块分析结果")
-        dialog.setMinimumSize(600, 400)
+        dialog.setWindowTitle("🎯 精准模块分析结果")
+        dialog.setMinimumSize(800, 600)
 
         layout = QVBoxLayout(dialog)
 
-        # 创建文本显示区域
-        text_edit = QTextEdit()
-        text_edit.setReadOnly(True)
+        # 创建标签页容器
+        tab_widget = QTabWidget()
 
-        # 构建结果文本
-        result_text = "🔍 智能模块分析结果\n"
-        result_text += "=" * 50 + "\n\n"
+        # 基本结果标签页
+        basic_text = QTextEdit()
+        basic_text.setReadOnly(True)
 
-        result_text += f"📋 检测到的模块: {len(analysis['detected_modules'])}\n"
-        for module in sorted(analysis['detected_modules']):
-            result_text += f"  ✓ {module}\n"
+        # 构建基本结果文本
+        result_text = "🎯 精准模块分析结果\n"
+        result_text += "=" * 60 + "\n\n"
+
+        # 检查是否有精准分析结果
+        if 'precise_result' in analysis:
+            precise_result = analysis['precise_result']
+
+            result_text += f"📊 模块统计:\n"
+            result_text += f"  🔧 标准库模块: {len(precise_result.standard_modules)} 个\n"
+            result_text += f"  📦 第三方库模块: {len(precise_result.third_party_modules)} 个\n"
+            result_text += f"  📁 本地模块: {len(precise_result.local_modules)} 个\n"
+            result_text += f"  ✅ 可用模块: {len(precise_result.available_modules)} 个\n"
+            result_text += f"  ❌ 缺失模块: {len(precise_result.missing_modules)} 个\n\n"
+
+            # 标准库模块
+            if precise_result.standard_modules:
+                result_text += f"🔧 标准库模块 ({len(precise_result.standard_modules)} 个):\n"
+                for module in sorted(precise_result.standard_modules):
+                    result_text += f"  ✓ {module}\n"
+                result_text += "\n"
+
+            # 第三方库模块
+            if precise_result.third_party_modules:
+                result_text += f"📦 第三方库模块 ({len(precise_result.third_party_modules)} 个):\n"
+                for module in sorted(precise_result.third_party_modules):
+                    info = precise_result.module_details.get(module)
+                    status = "✅" if info and info.is_available else "❌"
+                    version = f" (v{info.version})" if info and info.version != "unknown" else ""
+                    result_text += f"  {status} {module}{version}\n"
+                result_text += "\n"
+
+            # 本地模块
+            if precise_result.local_modules:
+                result_text += f"📁 本地模块 ({len(precise_result.local_modules)} 个):\n"
+                for module in sorted(precise_result.local_modules):
+                    result_text += f"  📄 {module}\n"
+                result_text += "\n"
+        else:
+            # 传统分析结果
+            result_text += f"📋 检测到的模块: {len(analysis['detected_modules'])}\n"
+            for module in sorted(analysis['detected_modules']):
+                result_text += f"  ✓ {module}\n"
 
         if analysis['missing_modules']:
             result_text += f"\n❌ 缺失的模块: {len(analysis['missing_modules'])}\n"
             for module in analysis['missing_modules']:
                 result_text += f"  ✗ {module} (请先安装此模块)\n"
 
-        if analysis['collect_all']:
-            result_text += f"\n📦 推荐的collect-all参数: {len(analysis['collect_all'])}\n"
-            for module in analysis['collect_all']:
-                result_text += f"  --collect-all={module}\n"
+        basic_text.setPlainText(result_text)
+        tab_widget.addTab(basic_text, "📊 基本结果")
 
-        result_text += f"\n🔒 推荐的隐藏导入: {len(analysis['hidden_imports'])}\n"
-        for module in sorted(analysis['hidden_imports'])[:15]:  # 只显示前15个
-            result_text += f"  --hidden-import={module}\n"
-        if len(analysis['hidden_imports']) > 15:
-            result_text += f"  ... 还有 {len(analysis['hidden_imports']) - 15} 个\n"
+        # 智能分析标签页
+        if 'intelligent_result' in analysis:
+            intelligent_text = QTextEdit()
+            intelligent_text.setReadOnly(True)
+
+            intelligent_result = analysis['intelligent_result']
+            intelligent_content = "🧠 智能模块分析结果\n"
+            intelligent_content += "=" * 60 + "\n\n"
+
+            # 显示分析类型
+            analysis_type = analysis.get('analysis_type', 'unknown')
+            if analysis_type == 'intelligent_optimized':
+                intelligent_content += "🚀 使用性能优化智能检测器\n"
+                if 'performance_metrics' in analysis:
+                    metrics = analysis['performance_metrics']
+                    intelligent_content += f"⏱️  分析耗时: {metrics.total_time:.2f}s\n"
+                    if 'cache_info' in analysis:
+                        cache_info = analysis['cache_info']
+                        intelligent_content += f"💾 缓存命中: {'是' if cache_info['cache_hit'] else '否'}\n"
+                        if cache_info['cache_hit']:
+                            intelligent_content += f"📂 缓存来源: {cache_info['cache_source']}\n"
+            elif analysis_type == 'intelligent':
+                intelligent_content += "🧠 使用智能模块分析器\n"
+            intelligent_content += "\n"
+
+            # 必需模块
+            if intelligent_result.essential_modules:
+                intelligent_content += f"🔹 必需模块 ({len(intelligent_result.essential_modules)} 个):\n"
+                for module in sorted(intelligent_result.essential_modules):
+                    confidence = intelligent_result.confidence_scores.get(module, 0.0)
+                    sources = ', '.join(intelligent_result.detection_sources.get(module, []))
+                    intelligent_content += f"  🔹 {module} (置信度: {confidence:.2f}, 来源: {sources})\n"
+                intelligent_content += "\n"
+
+            # 条件导入模块
+            if intelligent_result.conditional_imports:
+                intelligent_content += f"❓ 条件导入模块 ({len(intelligent_result.conditional_imports)} 个):\n"
+                for module in sorted(intelligent_result.conditional_imports):
+                    confidence = intelligent_result.confidence_scores.get(module, 0.0)
+                    intelligent_content += f"  ❓ {module} (置信度: {confidence:.2f})\n"
+                intelligent_content += "\n"
+
+            # 延迟导入模块
+            if intelligent_result.lazy_imports:
+                intelligent_content += f"⏰ 延迟导入模块 ({len(intelligent_result.lazy_imports)} 个):\n"
+                for module in sorted(intelligent_result.lazy_imports):
+                    confidence = intelligent_result.confidence_scores.get(module, 0.0)
+                    intelligent_content += f"  ⏰ {module} (置信度: {confidence:.2f})\n"
+                intelligent_content += "\n"
+
+            # 可选模块
+            if intelligent_result.optional_modules:
+                intelligent_content += f"🔄 可选模块 ({len(intelligent_result.optional_modules)} 个):\n"
+                for module in sorted(intelligent_result.optional_modules):
+                    confidence = intelligent_result.confidence_scores.get(module, 0.0)
+                    intelligent_content += f"  🔄 {module} (置信度: {confidence:.2f})\n"
+                intelligent_content += "\n"
+
+            # 风险模块
+            if intelligent_result.risky_modules:
+                intelligent_content += f"⚠️  风险模块 ({len(intelligent_result.risky_modules)} 个):\n"
+                for module in sorted(intelligent_result.risky_modules):
+                    confidence = intelligent_result.confidence_scores.get(module, 0.0)
+                    intelligent_content += f"  ⚠️  {module} (置信度: {confidence:.2f})\n"
+                intelligent_content += "\n"
+
+            # 置信度最高的模块
+            if intelligent_result.confidence_scores:
+                top_modules = sorted(intelligent_result.confidence_scores.items(),
+                                   key=lambda x: x[1], reverse=True)[:10]
+                intelligent_content += f"⭐ 置信度最高的模块 (前10个):\n"
+                for module, score in top_modules:
+                    sources = ', '.join(intelligent_result.detection_sources.get(module, []))
+                    intelligent_content += f"  ⭐ {module}: {score:.3f} ({sources})\n"
+                intelligent_content += "\n"
+
+            intelligent_text.setPlainText(intelligent_content)
+            tab_widget.addTab(intelligent_text, "🧠 智能分析")
+
+        # 动态分析标签页（传统分析器的结果）
+        elif 'dynamic_result' in analysis:
+            dynamic_text = QTextEdit()
+            dynamic_text.setReadOnly(True)
+
+            dynamic_result = analysis['dynamic_result']
+            dynamic_content = "🔍 动态依赖分析结果\n"
+            dynamic_content += "=" * 60 + "\n\n"
+
+            if dynamic_result.conditional_modules:
+                dynamic_content += f"❓ 条件导入模块 ({len(dynamic_result.conditional_modules)} 个):\n"
+                for module in sorted(dynamic_result.conditional_modules):
+                    dynamic_content += f"  ❓ {module} (在特定条件下导入)\n"
+                dynamic_content += "\n"
+
+            if dynamic_result.lazy_imports:
+                dynamic_content += f"⏰ 延迟导入模块 ({len(dynamic_result.lazy_imports)} 个):\n"
+                for module in sorted(dynamic_result.lazy_imports):
+                    dynamic_content += f"  ⏰ {module} (在函数内导入)\n"
+                dynamic_content += "\n"
+
+            if dynamic_result.optional_modules:
+                dynamic_content += f"🔄 可选模块 ({len(dynamic_result.optional_modules)} 个):\n"
+                for module in sorted(dynamic_result.optional_modules):
+                    dynamic_content += f"  🔄 {module} (可选依赖)\n"
+                dynamic_content += "\n"
+
+            if dynamic_result.runtime_modules:
+                dynamic_content += f"🚀 运行时模块 ({len(dynamic_result.runtime_modules)} 个):\n"
+                for module in sorted(dynamic_result.runtime_modules):
+                    dynamic_content += f"  🚀 {module} (动态导入)\n"
+                dynamic_content += "\n"
+
+            dynamic_text.setPlainText(dynamic_content)
+            tab_widget.addTab(dynamic_text, "🔍 动态分析")
+
+        # PyInstaller建议标签页
+        pyinstaller_text = QTextEdit()
+        pyinstaller_text.setReadOnly(True)
+
+        pyinstaller_content = "🔧 PyInstaller 打包建议\n"
+        pyinstaller_content += "=" * 60 + "\n\n"
+
+        if analysis['collect_all']:
+            pyinstaller_content += f"📦 推荐的collect-all参数 ({len(analysis['collect_all'])} 个):\n"
+            for module in analysis['collect_all']:
+                pyinstaller_content += f"  --collect-all={module}\n"
+            pyinstaller_content += "\n"
+
+        if analysis['hidden_imports']:
+            pyinstaller_content += f"🔒 推荐的隐藏导入 ({len(analysis['hidden_imports'])} 个):\n"
+            for module in sorted(analysis['hidden_imports'])[:15]:  # 只显示前15个
+                pyinstaller_content += f"  --hidden-import={module}\n"
+            if len(analysis['hidden_imports']) > 15:
+                pyinstaller_content += f"  ... 还有 {len(analysis['hidden_imports']) - 15} 个\n"
+            pyinstaller_content += "\n"
+
+        if analysis.get('data_files'):
+            pyinstaller_content += f"📁 推荐的数据文件 ({len(analysis['data_files'])} 个):\n"
+            for data_file in analysis['data_files'][:10]:
+                pyinstaller_content += f"  {data_file}\n"
+            if len(analysis['data_files']) > 10:
+                pyinstaller_content += f"  ... 还有 {len(analysis['data_files']) - 10} 个\n"
+            pyinstaller_content += "\n"
 
         if analysis['suggestions']:
-            result_text += f"\n💡 建议:\n"
+            pyinstaller_content += f"💡 优化建议 ({len(analysis['suggestions'])} 条):\n"
             for suggestion in analysis['suggestions'][:10]:  # 只显示前10个建议
-                result_text += f"  • {suggestion}\n"
+                pyinstaller_content += f"  • {suggestion}\n"
             if len(analysis['suggestions']) > 10:
-                result_text += f"  ... 还有 {len(analysis['suggestions']) - 10} 个建议\n"
+                pyinstaller_content += f"  ... 还有 {len(analysis['suggestions']) - 10} 个建议\n"
+            pyinstaller_content += "\n"
 
-        result_text += f"\n✅ 这些参数已自动应用到打包配置中！"
+        pyinstaller_content += "✅ 这些参数已自动应用到打包配置中！"
 
-        text_edit.setPlainText(result_text)
-        layout.addWidget(text_edit)
+        pyinstaller_text.setPlainText(pyinstaller_content)
+        tab_widget.addTab(pyinstaller_text, "🔧 打包建议")
+
+        layout.addWidget(tab_widget)
 
         # 添加关闭按钮
         close_btn = QPushButton("关闭")
@@ -517,6 +844,67 @@ class ModuleTab(QWidget):
 
         # 显示对话框
         dialog.exec_()
+
+    def _apply_analysis_to_packer_model(self, analysis: dict) -> None:
+        """将分析结果应用到打包模型中"""
+        try:
+            # 获取主窗口的打包模型
+            main_window = self.window()
+            if not main_window or not hasattr(main_window, 'model'):
+                self.logger.warning("无法获取主窗口的打包模型")
+                return
+
+            packer_model = main_window.model
+
+            # 清空现有的智能检测参数（避免重复）
+            if hasattr(packer_model, 'smart_hidden_imports'):
+                packer_model.smart_hidden_imports.clear()
+            else:
+                packer_model.smart_hidden_imports = []
+
+            if hasattr(packer_model, 'smart_collect_all'):
+                packer_model.smart_collect_all.clear()
+            else:
+                packer_model.smart_collect_all = []
+
+            if hasattr(packer_model, 'smart_data_files'):
+                packer_model.smart_data_files.clear()
+            else:
+                packer_model.smart_data_files = []
+
+            # 应用隐藏导入
+            hidden_imports = analysis.get('hidden_imports', [])
+            if hidden_imports:
+                packer_model.smart_hidden_imports.extend(hidden_imports)
+                self.logger.info(f"✅ 应用了 {len(hidden_imports)} 个隐藏导入")
+
+            # 应用collect-all参数
+            collect_all = analysis.get('collect_all', [])
+            if collect_all:
+                packer_model.smart_collect_all.extend(collect_all)
+                self.logger.info(f"✅ 应用了 {len(collect_all)} 个collect-all参数")
+
+            # 应用数据文件
+            data_files = analysis.get('data_files', [])
+            if data_files:
+                packer_model.smart_data_files.extend(data_files)
+                self.logger.info(f"✅ 应用了 {len(data_files)} 个数据文件")
+
+            # 通知用户
+            total_applied = len(hidden_imports) + len(collect_all) + len(data_files)
+            if total_applied > 0:
+                self.logger.info(f"🎉 成功应用 {total_applied} 个智能检测参数到打包配置")
+
+                # 更新状态标签以反映应用结果
+                current_text = self.status_label.text()
+                self.status_label.setText(f"{current_text} (已应用 {total_applied} 个参数)")
+            else:
+                self.logger.info("ℹ️  没有检测到需要应用的参数")
+
+        except Exception as e:
+            self.logger.error(f"❌ 应用分析结果到打包模型失败: {e}")
+            import traceback
+            traceback.print_exc()
 
     @pyqtSlot(str)
     def on_detection_error(self, error: str) -> None:

@@ -50,6 +50,11 @@ class PyInstallerModel:
         self.runtime_hook: str = ""
         self.exclude_module: str = ""
         self.splash: str = ""
+
+        # 智能检测参数
+        self.smart_hidden_imports: List[str] = []
+        self.smart_collect_all: List[str] = []
+        self.smart_data_files: List[tuple] = []
     
     def generate_command(self, python_interpreter: str = "") -> str:
         """生成PyInstaller命令"""
@@ -88,6 +93,28 @@ class PyInstallerModel:
         for module in self.hidden_imports:
             cmd.append(f"--hidden-import={module}")
 
+        # 智能检测的隐藏导入
+        if hasattr(self, 'smart_hidden_imports') and self.smart_hidden_imports:
+            for module in self.smart_hidden_imports:
+                if module not in self.hidden_imports:  # 避免重复
+                    cmd.append(f"--hidden-import={module}")
+
+        # 智能检测的collect-all参数
+        if hasattr(self, 'smart_collect_all') and self.smart_collect_all:
+            for module in self.smart_collect_all:
+                cmd.append(f"--collect-all={module}")
+
+        # 智能检测的数据文件
+        if hasattr(self, 'smart_data_files') and self.smart_data_files:
+            for data_file in self.smart_data_files:
+                if isinstance(data_file, (list, tuple)) and len(data_file) == 2:
+                    src, dst = data_file
+                    cmd.append(f"--add-data={src}{os.pathsep}{dst}")
+                elif isinstance(data_file, str):
+                    # 如果是字符串格式，尝试解析
+                    if os.pathsep in data_file:
+                        cmd.append(f"--add-data={data_file}")
+
         # 添加常见的隐藏导入
         common_hidden_imports = self._get_common_hidden_imports()
         for module in common_hidden_imports:
@@ -95,7 +122,7 @@ class PyInstallerModel:
                 cmd.append(f"--hidden-import={module}")
 
         # 添加关键的二进制文件（DLL）
-        critical_binaries = self._get_critical_binaries(python_exe)
+        critical_binaries = self._get_critical_binaries()
         for binary_path in critical_binaries:
             cmd.append(f"--add-binary={binary_path}")
 
@@ -277,62 +304,42 @@ coll = COLLECT(
             'setuptools',
         ]
 
-    def _get_critical_binaries(self, python_interpreter: str = "") -> List[str]:
+    def _get_critical_binaries(self) -> List[str]:
         """获取关键的二进制文件（DLL）路径"""
         import sys
         import os
-        import subprocess
 
         critical_binaries = []
 
-        # 确定要使用的Python解释器
-        python_exe = python_interpreter or sys.executable
+        # 检查是否在conda环境中
+        if hasattr(sys, 'prefix'):
+            # 常见的关键DLL文件
+            dll_names = [
+                'libexpat.dll',     # XML解析器
+                'expat.dll',        # XML解析器备用
+                'liblzma.dll',      # LZMA压缩
+                'LIBBZ2.dll',       # BZ2压缩
+                'ffi.dll',          # FFI库
+                'libffi.dll',       # FFI库备用
+                'sqlite3.dll',      # SQLite数据库
+                'libssl.dll',       # SSL库
+                'libcrypto.dll',    # 加密库
+            ]
 
-        # 获取指定Python解释器的环境信息
-        try:
-            # 获取Python环境的prefix路径
-            result = subprocess.run([
-                python_exe, '-c',
-                'import sys; print(sys.prefix)'
-            ], capture_output=True, text=True, timeout=10)
+            # 搜索路径
+            search_paths = [
+                os.path.join(sys.prefix, 'Library', 'bin'),  # conda环境
+                os.path.join(sys.prefix, 'DLLs'),            # Python DLLs
+                os.path.join(sys.prefix, 'bin'),             # 通用bin目录
+            ]
 
-            if result.returncode == 0:
-                target_prefix = result.stdout.strip()
-            else:
-                # 如果获取失败，回退到当前环境
-                target_prefix = sys.prefix
-
-        except Exception:
-            # 如果出错，回退到当前环境
-            target_prefix = sys.prefix
-
-        # 常见的关键DLL文件
-        dll_names = [
-            'libexpat.dll',     # XML解析器
-            'expat.dll',        # XML解析器备用
-            'liblzma.dll',      # LZMA压缩
-            'LIBBZ2.dll',       # BZ2压缩
-            'ffi.dll',          # FFI库
-            'libffi.dll',       # FFI库备用
-            'sqlite3.dll',      # SQLite数据库
-            'libssl.dll',       # SSL库
-            'libcrypto.dll',    # 加密库
-        ]
-
-        # 搜索路径（使用目标Python环境的路径）
-        search_paths = [
-            os.path.join(target_prefix, 'Library', 'bin'),  # conda环境
-            os.path.join(target_prefix, 'DLLs'),            # Python DLLs
-            os.path.join(target_prefix, 'bin'),             # 通用bin目录
-        ]
-
-        for search_path in search_paths:
-            if os.path.exists(search_path):
-                for dll_name in dll_names:
-                    dll_path = os.path.join(search_path, dll_name)
-                    if os.path.exists(dll_path):
-                        # 格式：源路径;目标路径
-                        critical_binaries.append(f"{dll_path};.")
+            for search_path in search_paths:
+                if os.path.exists(search_path):
+                    for dll_name in dll_names:
+                        dll_path = os.path.join(search_path, dll_name)
+                        if os.path.exists(dll_path):
+                            # 格式：源路径;目标路径
+                            critical_binaries.append(f"{dll_path};.")
 
         return critical_binaries
 
