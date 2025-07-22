@@ -9,10 +9,10 @@
     "auto_detect_modules": true,
     "use_ast_detection": true,
     "use_pyinstaller_detection": false,
-    "python_interpreter": "D:\\software\\anaconda3\\envs\\paddleEnv\\python.exe",
+    "python_interpreter": "D:\\software\\anaconda3\\envs\\autoReq\\python.exe",
     "package_timeout": 3600,
     "timeout_warning_enabled": true,
     "timeout_auto_suggest": true,
     "timeout_show_remaining": true,
-    "show_detection_notification": true
+    "show_detection_notification": false
 }
