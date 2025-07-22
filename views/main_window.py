@@ -283,6 +283,277 @@ class MainWindow(QMainWindow):
             # 静默处理错误，不影响用户体验
             print(f"智能超时建议失败: {e}")
 
+    def _execute_pre_packaging_smart_suggestions(self) -> bool:
+        """执行打包前的智能建议
+
+        Returns:
+            bool: True表示继续打包，False表示用户取消
+        """
+        from PyQt5.QtWidgets import QProgressDialog, QApplication
+        from PyQt5.QtCore import Qt
+
+        # 创建进度对话框
+        progress_dialog = QProgressDialog("正在执行智能分析...", "取消", 0, 100, self)
+        progress_dialog.setWindowTitle("🧠 智能建议")
+        progress_dialog.setWindowModality(Qt.WindowModal)
+        progress_dialog.setMinimumDuration(0)
+        progress_dialog.setValue(0)
+
+        try:
+            # 1. 智能超时建议
+            progress_dialog.setLabelText("正在分析项目复杂度...")
+            progress_dialog.setValue(20)
+            QApplication.processEvents()
+
+            if progress_dialog.wasCanceled():
+                return False
+
+            self._apply_smart_timeout_suggestion(self.model.script_path)
+
+            # 2. 智能模块检测
+            progress_dialog.setLabelText("正在检测项目依赖...")
+            progress_dialog.setValue(40)
+            QApplication.processEvents()
+
+            if progress_dialog.wasCanceled():
+                return False
+
+            # 执行模块检测
+            detection_result = self._execute_smart_module_detection()
+
+            progress_dialog.setValue(80)
+            QApplication.processEvents()
+
+            if progress_dialog.wasCanceled():
+                return False
+
+            # 3. 显示结果并询问用户
+            progress_dialog.setLabelText("分析完成，准备显示结果...")
+            progress_dialog.setValue(100)
+            QApplication.processEvents()
+
+            progress_dialog.close()
+
+            # 显示智能建议结果对话框
+            return self._show_smart_suggestions_dialog(detection_result)
+
+        except Exception as e:
+            progress_dialog.close()
+            QMessageBox.warning(self, "智能建议失败", f"执行智能建议时出错：{str(e)}\n\n将继续使用当前配置进行打包。")
+            return True  # 出错时继续打包
+
+    def _execute_smart_module_detection(self) -> dict:
+        """执行智能模块检测
+
+        Returns:
+            dict: 检测结果
+        """
+        try:
+            # 尝试使用性能优化检测器
+            try:
+                from services.performance_optimized_detector import PerformanceOptimizedDetector
+                detector = PerformanceOptimizedDetector(
+                    python_interpreter=self.config.get("python_interpreter", ""),
+                    timeout=30  # 30秒超时，避免阻塞太久
+                )
+                result = detector.detect_modules(self.model.script_path)
+                return {
+                    'modules': result.recommended_modules,
+                    'hidden_imports': result.hidden_imports,
+                    'analysis': result
+                }
+            except ImportError:
+                # 回退到智能分析器
+                from services.intelligent_module_analyzer import IntelligentModuleAnalyzer
+                analyzer = IntelligentModuleAnalyzer(
+                    python_interpreter=self.config.get("python_interpreter", ""),
+                    timeout=30
+                )
+                result = analyzer.analyze_script(
+                    script_path=self.model.script_path,
+                    use_execution=False,  # 快速模式
+                    enable_ml_scoring=False
+                )
+                return {
+                    'modules': result.recommended_modules,
+                    'hidden_imports': result.hidden_imports,
+                    'analysis': result
+                }
+        except Exception as e:
+            # 如果检测失败，返回空结果
+            return {
+                'modules': [],
+                'hidden_imports': [],
+                'analysis': None,
+                'error': str(e)
+            }
+
+    def _show_smart_suggestions_dialog(self, detection_result: dict) -> bool:
+        """显示智能建议对话框
+
+        Args:
+            detection_result: 检测结果
+
+        Returns:
+            bool: True表示继续打包，False表示取消
+        """
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QCheckBox
+        from PyQt5.QtCore import Qt
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("🧠 智能建议 - 打包前检查")
+        dialog.setMinimumSize(700, 500)
+        dialog.setWindowModality(Qt.WindowModal)
+
+        # 设置对话框样式
+        dialog.setStyleSheet("""
+            QDialog {
+                background-color: #f8f9fa;
+            }
+            QLabel {
+                color: #333;
+            }
+            QPushButton {
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+        """)
+
+        layout = QVBoxLayout(dialog)
+        layout.setSpacing(15)
+
+        # 标题区域
+        title_frame = QFrame()
+        title_frame.setStyleSheet("background-color: white; border-radius: 8px; padding: 15px;")
+        title_layout = QVBoxLayout(title_frame)
+
+        title_label = QLabel("🧠 智能分析完成")
+        title_label.setStyleSheet("font-weight: bold; font-size: 18px; color: #2196F3;")
+        title_layout.addWidget(title_label)
+
+        subtitle_label = QLabel("以下是基于项目分析的优化建议，应用这些建议可以提高打包成功率：")
+        subtitle_label.setStyleSheet("font-size: 12px; color: #666; margin-top: 5px;")
+        subtitle_label.setWordWrap(True)
+        title_layout.addWidget(subtitle_label)
+
+        layout.addWidget(title_frame)
+
+        # 结果显示区域
+        result_frame = QFrame()
+        result_frame.setStyleSheet("background-color: white; border-radius: 8px; border: 1px solid #ddd;")
+        result_layout = QVBoxLayout(result_frame)
+
+        result_label = QLabel("📊 分析结果")
+        result_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #333; margin-bottom: 10px;")
+        result_layout.addWidget(result_label)
+
+        result_text = QTextEdit()
+        result_text.setReadOnly(True)
+        result_text.setMaximumHeight(200)
+        result_text.setStyleSheet("""
+            QTextEdit {
+                border: none;
+                background-color: #f8f9fa;
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: 11px;
+                line-height: 1.4;
+            }
+        """)
+
+        # 构建结果文本
+        result_content = self._build_suggestions_content(detection_result)
+        result_text.setPlainText(result_content)
+
+        result_layout.addWidget(result_text)
+        layout.addWidget(result_frame)
+
+        # 自动应用选项
+        auto_apply_checkbox = QCheckBox("自动应用这些建议到当前配置")
+        auto_apply_checkbox.setChecked(True)
+        layout.addWidget(auto_apply_checkbox)
+
+        # 按钮区域
+        button_layout = QHBoxLayout()
+
+        continue_btn = QPushButton("✅ 应用建议并继续打包")
+        continue_btn.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; padding: 8px 16px; }")
+        continue_btn.clicked.connect(dialog.accept)
+
+        skip_btn = QPushButton("⏭️ 跳过建议，直接打包")
+        skip_btn.setStyleSheet("QPushButton { background-color: #FF9800; color: white; padding: 8px 16px; }")
+        skip_btn.clicked.connect(lambda: dialog.done(2))  # 返回特殊值2表示跳过
+
+        cancel_btn = QPushButton("❌ 取消打包")
+        cancel_btn.clicked.connect(dialog.reject)
+
+        button_layout.addWidget(continue_btn)
+        button_layout.addWidget(skip_btn)
+        button_layout.addWidget(cancel_btn)
+        layout.addLayout(button_layout)
+
+        # 显示对话框并处理结果
+        result = dialog.exec_()
+
+        if result == QDialog.Accepted:  # 应用建议并继续
+            if auto_apply_checkbox.isChecked():
+                self._apply_detection_suggestions(detection_result)
+            return True
+        elif result == 2:  # 跳过建议，直接打包
+            return True
+        else:  # 取消打包
+            return False
+
+    def _build_suggestions_content(self, detection_result: dict) -> str:
+        """构建建议内容文本"""
+        content_lines = []
+
+        # 超时设置建议
+        current_timeout = self.config.get_package_timeout()
+        timeout_display = self.config.format_timeout_display(current_timeout)
+        content_lines.append(f"⏱️ 超时设置: {timeout_display}")
+        content_lines.append("")
+
+        # 模块检测结果
+        modules = detection_result.get('modules', [])
+        hidden_imports = detection_result.get('hidden_imports', [])
+
+        if detection_result.get('error'):
+            content_lines.append(f"⚠️ 模块检测出现问题: {detection_result['error']}")
+            content_lines.append("建议手动检查项目依赖。")
+        else:
+            content_lines.append(f"📦 检测到 {len(modules)} 个项目模块")
+            content_lines.append(f"🔒 推荐 {len(hidden_imports)} 个隐藏导入")
+
+            if hidden_imports:
+                content_lines.append("")
+                content_lines.append("推荐的隐藏导入:")
+                for imp in hidden_imports[:10]:  # 只显示前10个
+                    content_lines.append(f"  • {imp}")
+                if len(hidden_imports) > 10:
+                    content_lines.append(f"  ... 还有 {len(hidden_imports) - 10} 个")
+
+        content_lines.append("")
+        content_lines.append("💡 这些建议基于项目的智能分析，可以提高打包成功率。")
+
+        return "\n".join(content_lines)
+
+    def _apply_detection_suggestions(self, detection_result: dict) -> None:
+        """应用检测建议到当前配置"""
+        try:
+            hidden_imports = detection_result.get('hidden_imports', [])
+
+            if hidden_imports and self.module_tab:
+                # 将隐藏导入添加到模块标签页
+                for imp in hidden_imports:
+                    self.module_tab.add_hidden_import(imp)
+
+                # 更新状态栏
+                self.statusBar().showMessage(f"已自动添加 {len(hidden_imports)} 个隐藏导入", 3000)
+
+        except Exception as e:
+            print(f"应用检测建议失败: {e}")
+
     def _show_detection_completion_dialog(self, module_count: int, hidden_count: int, analysis: dict) -> None:
         """显示检测完成对话框"""
         from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QCheckBox
@@ -383,6 +654,11 @@ class MainWindow(QMainWindow):
             if reply == QMessageBox.Yes:
                 self.install_pyinstaller()
             return
+
+        # 🧠 自动执行打包前智能建议（新增功能）
+        if self.config.get("auto_smart_suggestions_before_packaging", True):
+            if not self._execute_pre_packaging_smart_suggestions():
+                return  # 用户取消了打包
 
         # 切换到日志标签页
         self.tab_widget.setCurrentWidget(self.log_tab)

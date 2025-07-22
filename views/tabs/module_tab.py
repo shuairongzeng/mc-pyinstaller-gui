@@ -959,6 +959,25 @@ class ModuleTab(QWidget):
         """取消全选模块"""
         self.detected_modules_list.clearSelection()
     
+    def add_hidden_import(self, module_name: str) -> bool:
+        """添加隐藏导入模块
+
+        Args:
+            module_name: 要添加的模块名
+
+        Returns:
+            bool: 是否成功添加（False表示模块已存在）
+        """
+        if not module_name or not module_name.strip():
+            return False
+
+        module_name = module_name.strip()
+        if module_name not in self.model.hidden_imports:
+            self.model.hidden_imports.append(module_name)
+            self.refresh_hidden_imports_list()
+            return True
+        return False
+
     @pyqtSlot()
     def add_manual_import(self) -> None:
         """手动添加隐藏导入"""
@@ -967,10 +986,8 @@ class ModuleTab(QWidget):
             self, "添加模块", "请输入模块名称:"
         )
         if ok and module_name.strip():
-            module_name = module_name.strip()
-            if module_name not in self.model.hidden_imports:
-                self.model.hidden_imports.append(module_name)
-                self.refresh_hidden_imports_list()
+            if self.add_hidden_import(module_name):
+                pass  # 成功添加
             else:
                 QMessageBox.information(self, "提示", "该模块已存在于隐藏导入列表中")
     

@@ -146,6 +146,17 @@ class SettingsTab(QWidget):
         self.show_remaining_checkbox.setChecked(self.config.get("timeout_show_remaining", True))
         options_layout.addWidget(self.show_remaining_checkbox)
 
+        # 新增：智能建议配置选项
+        self.auto_smart_suggestions_checkbox = QCheckBox("打包前自动执行智能建议")
+        self.auto_smart_suggestions_checkbox.setToolTip("在开始打包前自动执行智能超时建议和模块检测")
+        self.auto_smart_suggestions_checkbox.setChecked(self.config.get("auto_smart_suggestions_before_packaging", True))
+        options_layout.addWidget(self.auto_smart_suggestions_checkbox)
+
+        self.auto_apply_suggestions_checkbox = QCheckBox("自动应用智能建议")
+        self.auto_apply_suggestions_checkbox.setToolTip("自动应用智能建议的结果，无需用户确认")
+        self.auto_apply_suggestions_checkbox.setChecked(self.config.get("auto_apply_smart_suggestions", True))
+        options_layout.addWidget(self.auto_apply_suggestions_checkbox)
+
         layout.addLayout(options_layout)
 
         # 分隔线
@@ -208,6 +219,10 @@ class SettingsTab(QWidget):
         self.suggest_timeout_btn.clicked.connect(self.on_suggest_timeout)
         self.timeout_warning_checkbox.toggled.connect(self.on_timeout_warning_toggled)
         self.show_remaining_checkbox.toggled.connect(self.on_show_remaining_toggled)
+
+        # 新增：智能建议配置信号
+        self.auto_smart_suggestions_checkbox.toggled.connect(self.on_auto_smart_suggestions_toggled)
+        self.auto_apply_suggestions_checkbox.toggled.connect(self.on_auto_apply_suggestions_toggled)
     
     @pyqtSlot()
     def browse_output_dir(self) -> None:
@@ -331,6 +346,18 @@ class SettingsTab(QWidget):
         self.config.set("timeout_show_remaining", checked)
         self.config_changed.emit()
 
+    @pyqtSlot(bool)
+    def on_auto_smart_suggestions_toggled(self, checked: bool) -> None:
+        """打包前自动智能建议选项变更"""
+        self.config.set("auto_smart_suggestions_before_packaging", checked)
+        self.config_changed.emit()
+
+    @pyqtSlot(bool)
+    def on_auto_apply_suggestions_toggled(self, checked: bool) -> None:
+        """自动应用智能建议选项变更"""
+        self.config.set("auto_apply_smart_suggestions", checked)
+        self.config_changed.emit()
+
     def _update_timeout_display(self, timeout_seconds: int) -> None:
         """更新超时时间显示"""
         display_text = self.config.format_timeout_display(timeout_seconds)
@@ -371,6 +398,10 @@ class SettingsTab(QWidget):
             # 更新其他选项
             self.timeout_warning_checkbox.setChecked(self.config.get("timeout_warning_enabled", True))
             self.show_remaining_checkbox.setChecked(self.config.get("timeout_show_remaining", True))
+
+            # 更新智能建议选项
+            self.auto_smart_suggestions_checkbox.setChecked(self.config.get("auto_smart_suggestions_before_packaging", True))
+            self.auto_apply_suggestions_checkbox.setChecked(self.config.get("auto_apply_smart_suggestions", True))
 
         except Exception as e:
             print(f"更新超时UI状态失败: {e}")

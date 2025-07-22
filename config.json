@@ -14,5 +14,8 @@
     "timeout_warning_enabled": true,
     "timeout_auto_suggest": true,
     "timeout_show_remaining": true,
-    "show_detection_notification": false
+    "show_detection_notification": false,
+    "auto_smart_suggestions_before_packaging": true,
+    "smart_suggestions_timeout": 30,
+    "auto_apply_smart_suggestions": true
 }

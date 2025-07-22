@@ -31,6 +31,9 @@ class AppConfig:
         "timeout_auto_suggest": True,  # 是否启用智能超时建议
         "timeout_show_remaining": True,  # 是否显示剩余时间
         "show_detection_notification": True,  # 是否显示检测完成通知
+        "auto_smart_suggestions_before_packaging": True,  # 打包前自动智能建议
+        "smart_suggestions_timeout": 30,  # 智能建议超时时间（秒）
+        "auto_apply_smart_suggestions": True  # 是否自动应用智能建议
     }
     
     def __init__(self, config_file: str = "config.json"):
