@@ -1,0 +1,20 @@
+# PyInstaller GUI 最小依赖
+# 仅包含运行应用程序所必需的核心依赖
+
+# GUI框架
+PyQt5>=5.15.0
+
+# 打包工具
+pyinstaller>=5.13.0
+
+# 模块导入支持
+importlib-metadata>=4.0.0
+
+# 基本图像处理
+Pillow>=8.0.0
+
+# Windows平台支持
+pywin32>=306; sys_platform=="win32"
+
+# 安装命令：
+# pip install -r requirements-minimal.txt

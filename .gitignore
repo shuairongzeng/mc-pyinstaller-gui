@@ -39,3 +39,4 @@ config.json
 cache/*
 performance_cache/*
 config.json
+logs/*

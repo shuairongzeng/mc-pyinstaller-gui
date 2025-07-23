@@ -1,0 +1,41 @@
+# PyInstaller GUI 锁定版本依赖
+# 此文件包含经过测试的稳定版本组合
+# 用于生产环境或需要版本一致性的场景
+
+# ==================== 核心依赖（锁定版本） ====================
+PyQt5==5.15.10
+PyQt5-Qt5==5.15.2
+PyQt5-sip==12.13.0
+pyinstaller==6.3.0
+
+# ==================== 必需依赖（锁定版本） ====================
+importlib-metadata==7.0.1
+Pillow==10.2.0
+typing-extensions==4.9.0
+
+# ==================== 支持库（锁定版本） ====================
+setuptools==69.0.3
+altgraph==0.17.4
+packaging==23.2
+pefile==2023.2.7
+pyinstaller-hooks-contrib==2024.0
+
+# ==================== 平台特定依赖 ====================
+pywin32==306; sys_platform=="win32"
+pywin32-ctypes==0.2.2; sys_platform=="win32"
+
+# ==================== 说明 ====================
+# 此文件用于确保所有环境使用相同的依赖版本
+# 适用于：
+# 1. 生产环境部署
+# 2. 团队协作开发
+# 3. CI/CD流水线
+# 4. 问题复现和调试
+
+# 安装命令：
+# pip install -r requirements-lock.txt
+
+# 更新锁定版本：
+# 1. 先安装 requirements.txt
+# 2. 运行 pip freeze > requirements-lock.txt
+# 3. 手动调整和验证版本

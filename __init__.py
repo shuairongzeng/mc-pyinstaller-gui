@@ -1,9 +1,9 @@
 """
-PyInstaller打包工具
+MC PyInstaller GUI
 
 @Description: 基于PyQt5开发的PyInstaller图形化打包工具
 @Version: 1.0.1
-@Author: xuyou & xiaomizha
+@Author: mc.shuai
 """
 import sys
 import os

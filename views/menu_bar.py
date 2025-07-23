@@ -1,56 +1,55 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 """
 菜单栏管理器
 """
+
 import webbrowser
-from typing import TYPE_CHECKING
-from PyQt5.QtWidgets import QMenuBar, QAction, QMessageBox, QFileDialog
-from PyQt5.QtCore import QObject, pyqtSlot
+from PyQt5.QtWidgets import QAction, QMessageBox, QFileDialog
+from PyQt5.QtCore import pyqtSlot
 from PyQt5.QtGui import QKeySequence
-
-if TYPE_CHECKING:
-    from views.main_window import MainWindow
-
-from services.package_service import PyInstallerChecker
 from about_dialog import AboutDialog
-
-class MenuBarManager(QObject):
+class MenuBarManager:
     """菜单栏管理器"""
-    
-    def __init__(self, main_window: 'MainWindow'):
-        super().__init__()
+
+    def __init__(self, main_window):
+        """初始化菜单栏管理器"""
         self.main_window = main_window
         self.menu_bar = main_window.menuBar()
         self.create_menus()
-    
+
     def create_menus(self) -> None:
-        """创建菜单"""
+        """创建所有菜单"""
         self.create_file_menu()
         self.create_edit_menu()
         self.create_tools_menu()
         self.create_help_menu()
-    
+
     def create_file_menu(self) -> None:
         """创建文件菜单"""
         file_menu = self.menu_bar.addMenu("文件(&F)")
-        
+
         # 新建项目
         new_action = QAction("新建项目(&N)", self.main_window)
         new_action.setShortcut(QKeySequence.New)
-        new_action.setStatusTip("创建新的打包项目")
+        new_action.setStatusTip("新建项目配置")
         new_action.triggered.connect(self.new_project)
         file_menu.addAction(new_action)
-        
+
         # 打开项目
         open_action = QAction("打开项目(&O)", self.main_window)
         open_action.setShortcut(QKeySequence.Open)
-        open_action.setStatusTip("打开已保存的项目配置")
+        open_action.setStatusTip("打开项目配置文件")
         open_action.triggered.connect(self.open_project)
         file_menu.addAction(open_action)
-        
+
+        file_menu.addSeparator()
+
         # 保存项目
         save_action = QAction("保存项目(&S)", self.main_window)
         save_action.setShortcut(QKeySequence.Save)
-        save_action.setStatusTip("保存当前项目配置")
+        save_action.setStatusTip("保存项目配置")
         save_action.triggered.connect(self.save_project)
         file_menu.addAction(save_action)
         
@@ -161,18 +160,16 @@ class MenuBarManager(QObject):
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
     
-    @pyqtSlot()
     def new_project(self, checked=False) -> None:
         """新建项目"""
         reply = QMessageBox.question(
-            self.main_window, "新建项目", 
+            self.main_window, "新建项目",
             "新建项目将清空当前所有配置，是否继续？",
             QMessageBox.Yes | QMessageBox.No
         )
         if reply == QMessageBox.Yes:
             self.main_window.clear_config()
-    
-    @pyqtSlot()
+
     def open_project(self, checked=False) -> None:
         """打开项目"""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -200,7 +197,6 @@ class MenuBarManager(QObject):
             except Exception as e:
                 QMessageBox.critical(self.main_window, "错误", f"加载项目配置失败: {str(e)}")
     
-    @pyqtSlot()
     def save_project(self, checked=False) -> None:
         """保存项目"""
         file_path, _ = QFileDialog.getSaveFileName(
@@ -209,8 +205,7 @@ class MenuBarManager(QObject):
         )
         if file_path:
             self._save_project_to_file(file_path)
-    
-    @pyqtSlot()
+
     def save_project_as(self, checked=False) -> None:
         """另存为项目"""
         file_path, _ = QFileDialog.getSaveFileName(
@@ -231,12 +226,10 @@ class MenuBarManager(QObject):
         except Exception as e:
             QMessageBox.critical(self.main_window, "错误", f"保存项目配置失败: {str(e)}")
     
-    @pyqtSlot()
     def open_settings(self, checked=False) -> None:
         """打开设置"""
         QMessageBox.information(self.main_window, "设置", "设置功能正在开发中...")
 
-    @pyqtSlot()
     def check_pyinstaller(self, checked=False) -> None:
         """检查PyInstaller"""
         controller = getattr(self.main_window, 'controller', None)
@@ -255,12 +248,10 @@ class MenuBarManager(QObject):
             if reply == QMessageBox.Yes:
                 self.install_pyinstaller()
     
-    @pyqtSlot()
     def install_pyinstaller(self, checked=False) -> None:
         """安装PyInstaller"""
         self.main_window.install_pyinstaller()
 
-    @pyqtSlot()
     def detect_modules(self, checked=False) -> None:
         """检测模块"""
         if not self.main_window.model.script_path:
@@ -272,7 +263,6 @@ class MenuBarManager(QObject):
             self.main_window.tab_widget.setCurrentWidget(self.main_window.module_tab)
             self.main_window.module_tab.start_detection()
     
-    @pyqtSlot()
     def show_help(self, checked=False) -> None:
         """显示帮助"""
         help_text = """
@@ -306,22 +296,18 @@ PyInstaller打包工具使用说明
         """
         QMessageBox.information(self.main_window, "使用说明", help_text)
 
-    @pyqtSlot()
     def open_pyinstaller_docs(self, checked=False) -> None:
         """打开PyInstaller文档"""
         webbrowser.open("https://pyinstaller.readthedocs.io/")
 
-    @pyqtSlot()
     def open_homepage(self, checked=False) -> None:
         """打开项目首页"""
-        webbrowser.open("https://github.com/xuyou/pyinstaller-gui")
+        webbrowser.open("https://github.com/shuairongzeng/mc-pyinstaller-gui")
 
-    @pyqtSlot()
     def report_issue(self, checked=False) -> None:
         """报告问题"""
-        webbrowser.open("https://github.com/xuyou/pyinstaller-gui/issues")
+        webbrowser.open("https://github.com/shuairongzeng/mc-pyinstaller-gui/issues")
 
-    @pyqtSlot()
     def show_about(self, checked=False) -> None:
         """显示关于对话框"""
         about_dialog = AboutDialog(self.main_window)

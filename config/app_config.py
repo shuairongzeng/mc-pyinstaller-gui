@@ -9,9 +9,9 @@ class AppConfig:
     """应用程序配置管理类"""
     
     # 应用程序基本信息
-    APP_NAME = "PyInstaller打包工具"
+    APP_NAME = "MC PyInstaller GUI"
     APP_VERSION = "1.0.1"
-    APP_AUTHOR = "xuyou & xiaomizha"
+    APP_AUTHOR = "mc.shuai"
     
     # 默认配置
     DEFAULT_CONFIG = {

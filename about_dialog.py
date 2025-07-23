@@ -3,7 +3,7 @@
 
 @Description: 关于对话框
 @Version: 1.0.1
-@Author: xuyou & xiaomizha
+@Author: mc.shuai
 """
 from datetime import datetime
 import webbrowser
@@ -24,7 +24,7 @@ class AboutDialog(QDialog):
 
     def init_ui(self):
         """初始化用户界面"""
-        self.setWindowTitle("关于PyInstaller打包工具")
+        self.setWindowTitle("关于 MC PyInstaller GUI")
         self.setFixedSize(750, 500)
         self.setModal(True)
 
@@ -70,12 +70,12 @@ class AboutDialog(QDialog):
         title_layout.addWidget(icon_label)
 
         title_info_layout = QVBoxLayout()
-        app_name_label = self.create_clickable_label("PyInstaller打包工具",
-                                                     "https://github.com/xuyouer/xuyou-pyinstaller-gui/",
+        app_name_label = self.create_clickable_label("MC PyInstaller GUI",
+                                                     "https://github.com/shuairongzeng/mc-pyinstaller-gui/",
                                                      "QLabel { color: initial; text-decoration: initial; }")
         app_name_label.setFont(QFont("Arial", 16, QFont.Bold))
         title_info_layout.addWidget(app_name_label)
-        version_label = QLabel("版本: 1.0.1")
+        version_label = QLabel("版本：1.0.1")
         version_label.setFont(QFont("Arial", 10))
         title_info_layout.addWidget(version_label)
         title_layout.addLayout(title_info_layout)
@@ -83,24 +83,21 @@ class AboutDialog(QDialog):
         layout.addLayout(title_layout)
 
         description_label = QLabel(
-            "这是一个基于PyQt5开发的PyInstaller图形化打包工具，\n"
-            "旨在简化Python程序的打包过程，提供直观易用的界面。"
+            "一个功能强大、现代化的 PyInstaller 图形化打包工具，\n"
+            "专为简化 Python 程序打包过程而设计，提供智能依赖检测和友好的用户界面。"
         )
         description_label.setWordWrap(True)
         description_label.setAlignment(Qt.AlignJustify)
         layout.addWidget(description_label)
 
         # 作者
-        # author_label = QLabel("作者: xuyou & xiaomizha")
+        # author_label = QLabel("作者：xuyou & xiaomizha")
         # author_label.setFont(QFont("Arial", 10, QFont.Bold))
         # layout.addWidget(author_label)
         author_layout = QHBoxLayout()
-        author_layout.addWidget(QLabel("作者: "))
-        xuyou_label = self.create_clickable_label("xuyou", "https://github.com/xuyouer/")
-        author_layout.addWidget(xuyou_label)
-        author_layout.addWidget(QLabel("&"))
-        xiaomizha_label = self.create_clickable_label("xiaomizha", "https://github.com/xuyouer/")
-        author_layout.addWidget(xiaomizha_label)
+        author_layout.addWidget(QLabel("作者："))
+        author_label = self.create_clickable_label("mc.shuai", "https://github.com/shuairongzeng")
+        author_layout.addWidget(author_label)
         author_layout.addStretch()
         author_widget = QWidget()
         author_widget.setLayout(author_layout)
@@ -108,24 +105,24 @@ class AboutDialog(QDialog):
 
         # 开发信息
         # dev_info_label = QLabel(
-        #     "开发语言: Python https://www.python.org/\n"
-        #     "GUI框架: PyQt5 https://www.riverbankcomputing.com/software/pyqt/\n"
-        #     "打包工具: PyInstaller https://pyinstaller.org/"
+        #     "开发语言：Python https://www.python.org/\n"
+        #     "GUI 框架：PyQt5 https://www.riverbankcomputing.com/software/pyqt/\n"
+        #     "打包工具：PyInstaller https://pyinstaller.org/"
         # )
         # layout.addWidget(dev_info_label)
         dev_info_layout = QVBoxLayout()
         python_layout = QHBoxLayout()
-        python_layout.addWidget(QLabel("开发语言: "))
+        python_layout.addWidget(QLabel("开发语言："))
         python_label = self.create_clickable_label("Python", "https://www.python.org/")
         python_layout.addWidget(python_label)
         python_layout.addStretch()
         pyqt5_layout = QHBoxLayout()
-        pyqt5_layout.addWidget(QLabel("GUI框架: "))
+        pyqt5_layout.addWidget(QLabel("GUI 框架："))
         pyqt5_label = self.create_clickable_label("PyQt5", "https://www.riverbankcomputing.com/software/pyqt/")
         pyqt5_layout.addWidget(pyqt5_label)
         pyqt5_layout.addStretch()
         pyinstaller_layout = QHBoxLayout()
-        pyinstaller_layout.addWidget(QLabel("打包工具: "))
+        pyinstaller_layout.addWidget(QLabel("打包工具："))
         pyinstaller_label = self.create_clickable_label("PyInstaller", "https://www.pyinstaller.org/")
         pyinstaller_layout.addWidget(pyinstaller_label)
         pyinstaller_layout.addStretch()
@@ -137,20 +134,12 @@ class AboutDialog(QDialog):
         layout.addWidget(dev_info_widget)
 
         # 版权信息
-        # current_year = datetime.now().year
-        # copyright_label = QLabel(f"Copyright © 2020-{current_year} xuyou & xiaomizha. All rights reserved.")
-        # copyright_label.setFont(QFont("Arial", 9))
-        # copyright_label.setStyleSheet("color: gray;")
-        # layout.addWidget(copyright_label)
         copyright_layout = QHBoxLayout()
         current_year = datetime.now().year
-        copyright_layout.addWidget(QLabel(f"Copyright © 2020-{current_year} "))
-        xuyou_copyright = self.create_clickable_label("xuyou", "https://github.com/xuyouer/")
-        copyright_layout.addWidget(xuyou_copyright)
-        copyright_layout.addWidget(QLabel(","))
-        xiaomizha_copyright = self.create_clickable_label("xiaomizha", "https://github.com/xuyouer/")
-        copyright_layout.addWidget(xiaomizha_copyright)
-        copyright_layout.addWidget(QLabel("., Ltd. All rights reserved."))
+        copyright_layout.addWidget(QLabel(f"Copyright © 2024-{current_year} "))
+        author_copyright = self.create_clickable_label("mc.shuai", "https://github.com/shuairongzeng")
+        copyright_layout.addWidget(author_copyright)
+        copyright_layout.addWidget(QLabel(". All rights reserved."))
         copyright_layout.addStretch()
         copyright_widget = QWidget()
         copyright_widget.setLayout(copyright_layout)
@@ -172,7 +161,7 @@ class AboutDialog(QDialog):
         license_text.setText(
             "MIT License\n\n"
 
-            "Copyright (c) 2025 xuyouer\n\n"
+            "Copyright (c) 2025 mc.shuai\n\n"
 
             "Permission is hereby granted, free of charge, to any person obtaining a copy\n"
             "of this software and associated documentation files (the \"Software\"), to deal\n"
@@ -192,8 +181,8 @@ class AboutDialog(QDialog):
             "OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n"
             "SOFTWARE.\n\n"
             "本软件使用的第三方库:\n"
-            "- PyQt5: 遵循GPL v3许可证\n"
-            "- PyInstaller: 遵循GPL v2许可证\n"
+            "- PyQt5: 遵循 GPL v3 许可证\n"
+            "- PyInstaller: 遵循 GPL v2 许可证\n"
         )
         layout.addWidget(license_text)
 
@@ -211,24 +200,24 @@ class AboutDialog(QDialog):
         import platform
 
         system_info = f"""系统信息:
-操作系统: {platform.system()} {platform.release()}
-架构: {platform.machine()}
-处理器: {platform.processor()}
+操作系统：{platform.system()} {platform.release()}
+架构：{platform.machine()}
+处理器：{platform.processor()}
 
-Python版本: {sys.version}
-Python路径: {sys.executable}
+Python 版本：{sys.version}
+Python 路径：{sys.executable}
 
-PyQt5信息:
+PyQt5 信息:
 """
 
         try:
             from PyQt5.QtCore import QT_VERSION_STR, PYQT_VERSION_STR
-            system_info += f"Qt版本: {QT_VERSION_STR}\n"
-            system_info += f"PyQt5版本: {PYQT_VERSION_STR}\n"
+            system_info += f"Qt 版本：{QT_VERSION_STR}\n"
+            system_info += f"PyQt5 版本：{PYQT_VERSION_STR}\n"
         except ImportError:
-            system_info += "PyQt5版本信息获取失败\n"
+            system_info += "PyQt5 版本信息获取失败\n"
 
-        system_info += "\nPyInstaller信息:\n"
+        system_info += "\nPyInstaller 信息:\n"
         try:
             import subprocess
             result = subprocess.run(
@@ -238,11 +227,11 @@ PyQt5信息:
                 timeout=5
             )
             if result.returncode == 0:
-                system_info += f"PyInstaller版本: {result.stdout.strip()}\n"
+                system_info += f"PyInstaller 版本：{result.stdout.strip()}\n"
             else:
-                system_info += "PyInstaller未安装或不在PATH中\n"
+                system_info += "PyInstaller 未安装或不在 PATH 中\n"
         except Exception as e:
-            system_info += f"PyInstaller检查失败: {str(e)}\n"
+            system_info += f"PyInstaller 检查失败：{str(e)}\n"
 
         system_text.setText(system_info)
         layout.addWidget(system_text)
